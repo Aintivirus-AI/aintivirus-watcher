@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Shield, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe } from 'lucide-react';
+import { Shield, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome } from 'lucide-react';
 import type { Visitor } from './hooks/useVisitors';
 
 // Hooks
@@ -240,6 +240,54 @@ function LocationOverlay({ visitor, isConnected }: { visitor: Visitor | null; is
   );
 }
 
+function ExtensionBanner() {
+  const [dismissed, setDismissed] = useState(false);
+
+  if (dismissed) return null;
+
+  return (
+    <motion.div
+      className="fixed bottom-4 right-4 z-50 max-w-[280px]"
+      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.95 }}
+      transition={{ delay: 2, duration: 0.4 }}
+    >
+      <div className="relative bg-cyber-bg-card/95 backdrop-blur-xl border border-cyber-cyan/20 rounded-xl p-4 shadow-lg shadow-cyber-cyan/5">
+        <button
+          onClick={() => setDismissed(true)}
+          className="absolute top-2 right-2 text-white/30 hover:text-white/60 transition-colors"
+          aria-label="Dismiss"
+        >
+          <X size={14} />
+        </button>
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-cyber-cyan/10 border border-cyber-cyan/20 flex items-center justify-center">
+            <Chrome size={18} className="text-cyber-cyan" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-display font-semibold text-cyber-text uppercase tracking-wide leading-tight">
+              Protect Your Privacy
+            </p>
+            <p className="text-[10px] text-cyber-text-dim mt-1 leading-relaxed">
+              Get our browser extension to block trackers like the ones shown here.
+            </p>
+          </div>
+        </div>
+        <a
+          href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-cyber-cyan/10 border border-cyber-cyan/20 hover:bg-cyber-cyan/20 hover:border-cyber-cyan/40 transition-all text-cyber-cyan text-[10px] font-display font-semibold uppercase tracking-widest"
+        >
+          <Chrome size={12} />
+          Add to Chrome
+        </a>
+      </div>
+    </motion.div>
+  );
+}
+
 function App() {
   // Initialize all tracking hooks
   useHardwareDetection();
@@ -272,6 +320,7 @@ function App() {
       {/* Fixed elements */}
       <ParticleBackground />
       <Navbar />
+      <ExtensionBanner />
       
       {/* Page content - starts after navbar */}
       <div>
