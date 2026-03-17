@@ -519,47 +519,141 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
 
 function ExtensionBanner() {
   const [dismissed, setDismissed] = useState(false);
+  const [threatCount, setThreatCount] = useState(0);
+  const network = useProfileStore((s) => s.network);
+  const fingerprints = useProfileStore((s) => s.fingerprints);
+  const trackingDetection = useProfileStore((s) => s.trackingDetection);
+  const vpn = useProfileStore((s) => s.vpnDetection);
+
+  // Count real "threats" detected on this user
+  const exposedPoints = useMemo(() => {
+    const points: string[] = [];
+    if (network.ip) points.push('IP address exposed');
+    if (fingerprints.canvasHash) points.push('Canvas fingerprint captured');
+    if (fingerprints.webglHash) points.push('WebGL fingerprint captured');
+    if (fingerprints.audioHash) points.push('Audio fingerprint captured');
+    if (!trackingDetection.adBlocker) points.push('No ad blocker detected');
+    if (!trackingDetection.doNotTrack) points.push('Do Not Track disabled');
+    if (fingerprints.crossBrowserId) points.push('Cross-browser ID generated');
+    if (network.isp) points.push('ISP identified');
+    if (vpn.webrtcLeak) points.push('WebRTC leak detected');
+    if (fingerprints.fontsDetected > 0) points.push(`${fingerprints.fontsDetected} fonts enumerated`);
+    return points;
+  }, [network, fingerprints, trackingDetection, vpn]);
+
+  // Animate the threat counter up
+  useEffect(() => {
+    if (exposedPoints.length === 0) return;
+    const target = exposedPoints.length;
+    let current = 0;
+    const interval = setInterval(() => {
+      current++;
+      setThreatCount(current);
+      if (current >= target) clearInterval(interval);
+    }, 150);
+    return () => clearInterval(interval);
+  }, [exposedPoints.length]);
+
+  // Cycle through exposed points as a live ticker
+  const [tickerIndex, setTickerIndex] = useState(0);
+  useEffect(() => {
+    if (exposedPoints.length === 0) return;
+    const interval = setInterval(() => {
+      setTickerIndex((i) => (i + 1) % exposedPoints.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [exposedPoints.length]);
 
   if (dismissed) return null;
 
   return (
     <motion.div
-      className="fixed bottom-4 right-4 z-50 max-w-[280px]"
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      className="fixed bottom-4 right-4 z-50 w-[320px]"
+      initial={{ opacity: 0, y: 30, scale: 0.9 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 20, scale: 0.95 }}
-      transition={{ delay: 2, duration: 0.4 }}
+      transition={{ delay: 3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
     >
-      <div className="relative bg-cyber-bg-card/95 backdrop-blur-xl border border-cyber-cyan/20 rounded-xl p-4 shadow-lg shadow-cyber-cyan/5">
+      <div className="relative overflow-hidden bg-cyber-bg-card/95 backdrop-blur-xl border border-cyber-red/30 rounded-2xl shadow-2xl shadow-cyber-red/10">
+        {/* Animated top border glow */}
+        <div className="absolute top-0 left-0 right-0 h-[1px]">
+          <motion.div
+            className="h-full bg-gradient-to-r from-transparent via-cyber-red to-transparent"
+            animate={{ x: ['-100%', '100%'] }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+          />
+        </div>
+
+        {/* Scanline effect */}
+        <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
+          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,45,85,0.15) 2px, rgba(255,45,85,0.15) 4px)',
+        }} />
+
+        {/* Close button */}
         <button
           onClick={() => setDismissed(true)}
-          className="absolute top-2 right-2 text-white/30 hover:text-white/60 transition-colors"
+          className="absolute top-3 right-3 z-10 text-white/20 hover:text-white/50 transition-colors"
           aria-label="Dismiss"
         >
           <X size={14} />
         </button>
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-cyber-cyan/10 border border-cyber-cyan/20 flex items-center justify-center">
-            <Chrome size={18} className="text-cyber-cyan" />
+
+        {/* Alert header */}
+        <div className="px-5 pt-4 pb-3">
+          <div className="flex items-center gap-2 mb-1">
+            <motion.div
+              className="w-2 h-2 rounded-full bg-cyber-red"
+              animate={{ opacity: [1, 0.3, 1] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+            />
+            <span className="text-cyber-red text-[9px] font-mono uppercase tracking-[0.25em] font-bold">
+              Threat Report
+            </span>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-display font-semibold text-cyber-text uppercase tracking-wide leading-tight">
-              Protect Your Privacy
-            </p>
-            <p className="text-[10px] text-cyber-text-dim mt-1 leading-relaxed">
-              Get our browser extension to block trackers like the ones shown here.
-            </p>
+
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="text-3xl font-display font-bold text-cyber-red tabular-nums">
+              {threatCount}
+            </span>
+            <span className="text-white/40 text-[11px] font-display">
+              vulnerabilities detected on your browser
+            </span>
           </div>
         </div>
-        <a
-          href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-cyber-cyan/10 border border-cyber-cyan/20 hover:bg-cyber-cyan/20 hover:border-cyber-cyan/40 transition-all text-cyber-cyan text-[10px] font-display font-semibold uppercase tracking-widest"
-        >
-          <Chrome size={12} />
-          Add to Chrome
-        </a>
+
+        {/* Live threat ticker */}
+        <div className="px-5 py-2.5 bg-cyber-red/5 border-y border-cyber-red/10">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={tickerIndex}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3 }}
+              className="flex items-center gap-2"
+            >
+              <Shield size={10} className="text-cyber-red/60 shrink-0" />
+              <span className="text-white/50 text-[10px] font-mono truncate">
+                {exposedPoints[tickerIndex] || 'Scanning...'}
+              </span>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* CTA */}
+        <div className="px-5 pt-3 pb-4">
+          <p className="text-white/30 text-[10px] font-mono mb-3 leading-relaxed">
+            The AIntivirus extension blocks fingerprinting, spoofs your identity, and keeps trackers blind.
+          </p>
+          <a
+            href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group flex items-center justify-center gap-2.5 w-full py-2.5 rounded-xl bg-cyber-red/10 border border-cyber-red/30 hover:bg-cyber-red/20 hover:border-cyber-red/50 hover:shadow-lg hover:shadow-cyber-red/10 transition-all text-cyber-red text-[11px] font-display font-bold uppercase tracking-[0.15em]"
+          >
+            <ShieldCheck size={14} className="group-hover:scale-110 transition-transform" />
+            Protect Now — Add to Chrome
+          </a>
+        </div>
       </div>
     </motion.div>
   );
