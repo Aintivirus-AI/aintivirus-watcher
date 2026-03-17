@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Shield, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe } from 'lucide-react';
+import { useEffect, useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome, Eye, MapPin, Wifi, Monitor } from 'lucide-react';
 import type { Visitor } from './hooks/useVisitors';
 
 // Hooks
@@ -240,6 +240,425 @@ function LocationOverlay({ visitor, isConnected }: { visitor: Visitor | null; is
   );
 }
 
+function CountryCounter({ historicalVisitors, visitors }: { historicalVisitors: { country: string }[]; visitors: Visitor[] }) {
+  const uniqueCountries = useMemo(() => {
+    const countries = new Set<string>();
+    historicalVisitors.forEach((v) => { if (v.country) countries.add(v.country); });
+    visitors.forEach((v) => { if (v.geo?.country) countries.add(v.geo.country); });
+    return countries.size;
+  }, [historicalVisitors, visitors]);
+
+  if (uniqueCountries === 0) return null;
+
+  return (
+    <motion.div
+      className="flex items-center gap-2 bg-cyber-bg/60 backdrop-blur-xl px-3 md:px-4 py-1.5 md:py-2 rounded-full border text-amber-400 border-amber-500/20"
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 1.1 }}
+    >
+      <MapPin size={10} className="md:w-3 md:h-3" />
+      <span className="text-[9px] md:text-[10px] font-display font-semibold uppercase tracking-[0.15em] md:tracking-[0.2em]">
+        {uniqueCountries}/195 Countries
+      </span>
+    </motion.div>
+  );
+}
+
+function CreepyIntroPopup({ visitor, onEnter }: { visitor: Visitor | null; onEnter: () => void }) {
+  const network = useProfileStore((s) => s.network);
+  const hardware = useProfileStore((s) => s.hardware);
+  const browser = useProfileStore((s) => s.browser);
+  const [step, setStep] = useState(0);
+
+  const city = visitor?.geo?.city || network.city || null;
+  const region = visitor?.geo?.region || network.region || null;
+  const country = visitor?.geo?.country || network.country || null;
+
+  const indicators = useMemo(() => {
+    const items: { label: string; value: string; icon: React.ReactNode }[] = [];
+
+    // 1. Location - always first
+    if (city && country) {
+      items.push({
+        label: 'You are visiting from',
+        value: `${city}${region ? `, ${region}` : ''}, ${country}`,
+        icon: <MapPin size={16} className="text-cyber-red" />,
+      });
+    }
+
+    // 2. Device/hardware
+    const gpu = hardware.gpu;
+    const cores = hardware.cpuCores;
+    const screenRes = `${hardware.screenWidth}x${hardware.screenHeight}`;
+    if (gpu && gpu !== 'unknown') {
+      items.push({
+        label: 'You are running',
+        value: `${gpu} with ${cores || '?'} CPU cores at ${screenRes}`,
+        icon: <Monitor size={16} className="text-cyber-purple" />,
+      });
+    } else if (cores) {
+      items.push({
+        label: 'Your device has',
+        value: `${cores} CPU cores, ${screenRes} display, ${hardware.pixelRatio}x pixel density`,
+        icon: <Monitor size={16} className="text-cyber-purple" />,
+      });
+    }
+
+    // 3. Network/ISP
+    const isp = visitor?.geo?.isp || network.isp;
+    const connType = network.connectionType;
+    if (isp) {
+      items.push({
+        label: 'Your connection reveals',
+        value: `${isp}${connType ? ` via ${connType}` : ''}`,
+        icon: <Wifi size={16} className="text-cyber-cyan" />,
+      });
+    }
+
+    // 4. Browser
+    const platform = browser.platform;
+    const lang = browser.language;
+    if (platform) {
+      items.push({
+        label: 'Your browser exposes',
+        value: `${platform}, ${lang}, ${browser.languages.length} languages configured`,
+        icon: <Eye size={16} className="text-amber-400" />,
+      });
+    }
+
+    return items.slice(0, 3);
+  }, [city, region, country, hardware, browser, visitor, network]);
+
+  // Animate steps in
+  useEffect(() => {
+    if (indicators.length === 0) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    indicators.forEach((_, i) => {
+      timers.push(setTimeout(() => setStep(i + 1), 800 + i * 1200));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [indicators.length]);
+
+  const ready = indicators.length >= 2;
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.5 }}
+    >
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-cyber-bg/98 backdrop-blur-xl" />
+
+      {/* Scanlines effect */}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
+        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,240,255,0.1) 2px, rgba(0,240,255,0.1) 4px)',
+      }} />
+
+      <div className="relative z-10 max-w-lg w-full mx-6 px-2">
+        {/* Eye icon */}
+        <motion.div
+          className="flex justify-center mb-12"
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: 'spring', delay: 0.2 }}
+        >
+          <div className="w-20 h-20 rounded-full border border-cyber-red/30 flex items-center justify-center bg-cyber-red/5">
+            <Eye size={34} className="text-cyber-red" />
+          </div>
+        </motion.div>
+
+        <motion.p
+          className="text-center text-cyber-text-dim text-xs uppercase tracking-[0.35em] font-mono mb-14"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4 }}
+        >
+          We already know...
+        </motion.p>
+
+        {/* Creepy indicators */}
+        <div className="space-y-6 mb-14">
+          {indicators.map((item, i) => (
+            <AnimatePresence key={i}>
+              {step > i && (
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5 }}
+                  className="bg-cyber-bg-card/80 border border-white/5 rounded-xl px-6 py-5"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="mt-1 shrink-0">{item.icon}</div>
+                    <div>
+                      <p className="text-white/40 text-[10px] uppercase tracking-widest font-mono mb-2">{item.label}</p>
+                      <p className="text-cyber-text text-[15px] font-display font-semibold leading-snug">{item.value}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          ))}
+        </div>
+
+        {/* CTA */}
+        <AnimatePresence>
+          {ready && step >= indicators.length && (
+            <motion.div
+              className="text-center pt-2"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+            >
+              <p className="text-cyber-text-dim text-[11px] font-mono mb-6 tracking-wider">
+                ...and that's just the beginning.
+              </p>
+              <button
+                onClick={onEnter}
+                className="group relative inline-flex items-center gap-3 bg-cyber-red/10 border border-cyber-red/30 hover:bg-cyber-red/20 hover:border-cyber-red/50 transition-all px-10 py-4 rounded-xl cursor-pointer"
+              >
+                <Eye size={16} className="text-cyber-red" />
+                <span className="text-cyber-red text-[11px] font-display font-bold uppercase tracking-[0.2em]">
+                  Enter The Watcher
+                </span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  );
+}
+
+function McAfeeProtocolOverlay() {
+  return (
+    <motion.div
+      className="absolute inset-0 z-30 pointer-events-none overflow-hidden rounded-2xl"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      {/* Scan line */}
+      <div className="absolute inset-0 overflow-hidden">
+        <motion.div
+          className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400/60 to-transparent"
+          animate={{ top: ['0%', '100%'] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+        />
+      </div>
+
+      {/* Glitch overlay */}
+      <div className="absolute inset-0" style={{
+        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,255,157,0.015) 3px, rgba(0,255,157,0.015) 6px)',
+      }} />
+    </motion.div>
+  );
+}
+
+function McAfeeProtocolBanner({ active }: { active: boolean }) {
+  if (!active) return null;
+
+  const spoofedData = useMemo(() => {
+    const randomHex = (len: number) => Array.from({ length: len }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    return {
+      ip: `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
+      canvas: randomHex(16),
+      webgl: randomHex(16),
+      audio: randomHex(16),
+      gpu: ['Generic Renderer', 'SwiftShader', 'ANGLE (Unknown)'][Math.floor(Math.random() * 3)],
+      cores: [2, 4, 8][Math.floor(Math.random() * 3)],
+      timezone: ['UTC', 'America/New_York', 'Europe/London', 'Asia/Tokyo'][Math.floor(Math.random() * 4)],
+    };
+  }, []);
+
+  return (
+    <motion.div
+      className="mb-6 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4"
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <ShieldCheck size={14} className="text-emerald-400" />
+        <span className="text-emerald-400 text-[10px] font-display font-bold uppercase tracking-widest">McAfee Protocol Active</span>
+      </div>
+      <p className="text-white/40 text-[10px] font-mono mb-3">
+        The Watcher would see this instead of your real data:
+      </p>
+      <div className="space-y-1.5 font-mono text-[9px]">
+        <div className="flex justify-between"><span className="text-white/25">IP</span><span className="text-emerald-400/70">{spoofedData.ip}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">Canvas Hash</span><span className="text-emerald-400/70">{spoofedData.canvas}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">WebGL Hash</span><span className="text-emerald-400/70">{spoofedData.webgl}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">Audio Hash</span><span className="text-emerald-400/70">{spoofedData.audio}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">GPU</span><span className="text-emerald-400/70">{spoofedData.gpu}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">CPU Cores</span><span className="text-emerald-400/70">{spoofedData.cores}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">Timezone</span><span className="text-emerald-400/70">{spoofedData.timezone}</span></div>
+      </div>
+
+      {/* Extension CTA */}
+      <div className="mt-4 pt-3 border-t border-emerald-500/10">
+        <p className="text-white/30 text-[9px] font-mono mb-3">
+          Want this protection for real? Get the AIntivirus browser extension.
+        </p>
+        <a
+          href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all text-emerald-400 text-[10px] font-display font-semibold uppercase tracking-widest"
+        >
+          <Chrome size={12} />
+          Add to Chrome
+        </a>
+      </div>
+    </motion.div>
+  );
+}
+
+function ExtensionBanner() {
+  const [dismissed, setDismissed] = useState(false);
+  const [threatCount, setThreatCount] = useState(0);
+  const network = useProfileStore((s) => s.network);
+  const fingerprints = useProfileStore((s) => s.fingerprints);
+  const trackingDetection = useProfileStore((s) => s.trackingDetection);
+  const vpn = useProfileStore((s) => s.vpnDetection);
+
+  // Count real "threats" detected on this user
+  const exposedPoints = useMemo(() => {
+    const points: string[] = [];
+    if (network.ip) points.push('IP address exposed');
+    if (fingerprints.canvasHash) points.push('Canvas fingerprint captured');
+    if (fingerprints.webglHash) points.push('WebGL fingerprint captured');
+    if (fingerprints.audioHash) points.push('Audio fingerprint captured');
+    if (!trackingDetection.adBlocker) points.push('No ad blocker detected');
+    if (!trackingDetection.doNotTrack) points.push('Do Not Track disabled');
+    if (fingerprints.crossBrowserId) points.push('Cross-browser ID generated');
+    if (network.isp) points.push('ISP identified');
+    if (vpn.webrtcLeak) points.push('WebRTC leak detected');
+    if (fingerprints.fontsDetected > 0) points.push(`${fingerprints.fontsDetected} fonts enumerated`);
+    return points;
+  }, [network, fingerprints, trackingDetection, vpn]);
+
+  // Animate the threat counter up
+  useEffect(() => {
+    if (exposedPoints.length === 0) return;
+    const target = exposedPoints.length;
+    let current = 0;
+    const interval = setInterval(() => {
+      current++;
+      setThreatCount(current);
+      if (current >= target) clearInterval(interval);
+    }, 150);
+    return () => clearInterval(interval);
+  }, [exposedPoints.length]);
+
+  // Cycle through exposed points as a live ticker
+  const [tickerIndex, setTickerIndex] = useState(0);
+  useEffect(() => {
+    if (exposedPoints.length === 0) return;
+    const interval = setInterval(() => {
+      setTickerIndex((i) => (i + 1) % exposedPoints.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [exposedPoints.length]);
+
+  if (dismissed) return null;
+
+  return (
+    <motion.div
+      className="fixed bottom-4 right-4 z-50 w-[320px]"
+      initial={{ opacity: 0, y: 30, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+    >
+      <div className="relative overflow-hidden bg-cyber-bg-card/95 backdrop-blur-xl border border-cyber-red/30 rounded-2xl shadow-2xl shadow-cyber-red/10">
+        {/* Animated top border glow */}
+        <div className="absolute top-0 left-0 right-0 h-[1px]">
+          <motion.div
+            className="h-full bg-gradient-to-r from-transparent via-cyber-red to-transparent"
+            animate={{ x: ['-100%', '100%'] }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+          />
+        </div>
+
+        {/* Scanline effect */}
+        <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
+          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,45,85,0.15) 2px, rgba(255,45,85,0.15) 4px)',
+        }} />
+
+        {/* Close button */}
+        <button
+          onClick={() => setDismissed(true)}
+          className="absolute top-3 right-3 z-10 text-white/20 hover:text-white/50 transition-colors"
+          aria-label="Dismiss"
+        >
+          <X size={14} />
+        </button>
+
+        {/* Alert header */}
+        <div className="px-5 pt-4 pb-3">
+          <div className="flex items-center gap-2 mb-1">
+            <motion.div
+              className="w-2 h-2 rounded-full bg-cyber-red"
+              animate={{ opacity: [1, 0.3, 1] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+            />
+            <span className="text-cyber-red text-[9px] font-mono uppercase tracking-[0.25em] font-bold">
+              Threat Report
+            </span>
+          </div>
+
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="text-3xl font-display font-bold text-cyber-red tabular-nums">
+              {threatCount}
+            </span>
+            <span className="text-white/40 text-[11px] font-display">
+              vulnerabilities detected on your browser
+            </span>
+          </div>
+        </div>
+
+        {/* Live threat ticker */}
+        <div className="px-5 py-2.5 bg-cyber-red/5 border-y border-cyber-red/10">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={tickerIndex}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3 }}
+              className="flex items-center gap-2"
+            >
+              <Shield size={10} className="text-cyber-red/60 shrink-0" />
+              <span className="text-white/50 text-[10px] font-mono truncate">
+                {exposedPoints[tickerIndex] || 'Scanning...'}
+              </span>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* CTA */}
+        <div className="px-5 pt-3 pb-4">
+          <p className="text-white/30 text-[10px] font-mono mb-3 leading-relaxed">
+            The AIntivirus extension blocks fingerprinting, spoofs your identity, and keeps trackers blind.
+          </p>
+          <a
+            href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group flex items-center justify-center gap-2.5 w-full py-2.5 rounded-xl bg-cyber-red/10 border border-cyber-red/30 hover:bg-cyber-red/20 hover:border-cyber-red/50 hover:shadow-lg hover:shadow-cyber-red/10 transition-all text-cyber-red text-[11px] font-display font-bold uppercase tracking-[0.15em]"
+          >
+            <ShieldCheck size={14} className="group-hover:scale-110 transition-transform" />
+            Protect Now — Add to Chrome
+          </a>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function App() {
   // Initialize all tracking hooks
   useHardwareDetection();
@@ -259,6 +678,12 @@ function App() {
   const { history: historicalVisitors } = useVisitorHistory();
   const [showAllTime, setShowAllTime] = useState(false);
 
+  // Creepy intro popup - show once per session
+  const [showIntro, setShowIntro] = useState(() => !sessionStorage.getItem('watcher_entered'));
+
+  // McAfee Protocol mode
+  const [mcafeeProtocol, setMcafeeProtocol] = useState(false);
+
   const { addConsoleEntry } = useProfileStore();
 
   useEffect(() => {
@@ -267,11 +692,24 @@ function App() {
     addConsoleEntry('INFO', 'All data processed locally - no server transmission');
   }, []);
 
+  const handleEnterSite = () => {
+    sessionStorage.setItem('watcher_entered', '1');
+    setShowIntro(false);
+  };
+
   return (
     <>
+      {/* Creepy intro popup */}
+      <AnimatePresence>
+        {showIntro && (
+          <CreepyIntroPopup visitor={currentVisitor} onEnter={handleEnterSite} />
+        )}
+      </AnimatePresence>
+
       {/* Fixed elements */}
       <ParticleBackground />
       <Navbar />
+      <ExtensionBanner />
       
       {/* Page content - starts after navbar */}
       <div>
@@ -333,6 +771,25 @@ function App() {
                     {showAllTime ? `All Time (${historicalVisitors.length})` : 'All Time'}
                   </span>
                 </motion.button>
+                {showAllTime && (
+                  <CountryCounter historicalVisitors={historicalVisitors} visitors={visitors} />
+                )}
+                <motion.button
+                  onClick={() => setMcafeeProtocol((v) => !v)}
+                  className={`flex items-center gap-2 bg-cyber-bg/60 backdrop-blur-xl px-3 md:px-4 py-1.5 md:py-2 rounded-full border cursor-pointer transition-colors ${
+                    mcafeeProtocol
+                      ? 'text-emerald-400 border-emerald-500/30'
+                      : 'text-white/40 border-white/10 hover:text-white/60 hover:border-white/20'
+                  }`}
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 1.3 }}
+                >
+                  {mcafeeProtocol ? <ShieldCheck size={10} className="md:w-3 md:h-3" /> : <Shield size={10} className="md:w-3 md:h-3" />}
+                  <span className="text-[9px] md:text-[10px] font-display font-semibold uppercase tracking-[0.15em] md:tracking-[0.2em]">
+                    McAfee Protocol
+                  </span>
+                </motion.button>
                 <ChatBox
                   messages={chatMessages}
                   onSend={sendChatMessage}
@@ -357,8 +814,14 @@ function App() {
             </div>
 
             {/* Right Pane: User Information */}
-            <div className="xl:col-span-3 xl:h-[calc(100vh-120px)] xl:overflow-y-auto border-t xl:border-t-0 xl:border-l border-white/5">
-              <div className="p-4 md:p-6">
+            <div className="xl:col-span-3 xl:h-[calc(100vh-120px)] xl:overflow-y-auto border-t xl:border-t-0 xl:border-l border-white/5 relative">
+              <AnimatePresence>
+                {mcafeeProtocol && <McAfeeProtocolOverlay />}
+              </AnimatePresence>
+              <div className={`p-4 md:p-6 ${mcafeeProtocol ? 'relative z-10' : ''}`}>
+                <AnimatePresence>
+                  <McAfeeProtocolBanner active={mcafeeProtocol} />
+                </AnimatePresence>
                 {/* Identity Profile */}
                 <div className="mb-8">
                   <SectionTitle icon={<User size={14} />}>Identity Profile</SectionTitle>
@@ -395,9 +858,12 @@ function App() {
 
                 {/* Technical Fingerprinting */}
                 <div className="mb-8">
-                  <SectionTitle 
-                    icon={<Shield size={14} />}
-                    badge={<span className="text-[9px] font-mono text-rose-400/70 bg-rose-500/10 px-2 py-0.5 rounded">EXPOSED</span>}
+                  <SectionTitle
+                    icon={mcafeeProtocol ? <ShieldCheck size={14} /> : <Shield size={14} />}
+                    badge={mcafeeProtocol
+                      ? <span className="text-[9px] font-mono text-emerald-400/70 bg-emerald-500/10 px-2 py-0.5 rounded animate-pulse">PROTECTED</span>
+                      : <span className="text-[9px] font-mono text-rose-400/70 bg-rose-500/10 px-2 py-0.5 rounded">EXPOSED</span>
+                    }
                   >
                     Technical Fingerprinting
                   </SectionTitle>

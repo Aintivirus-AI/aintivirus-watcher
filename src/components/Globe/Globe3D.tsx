@@ -22,6 +22,12 @@ interface PinTooltipData {
   country: string;
   connectedAt: number;
   type: 'live' | 'historical' | 'you';
+  region?: string;
+  timezone?: string;
+  isp?: string;
+  ip?: string;
+  lat?: number;
+  lng?: number;
 }
 
 function latLongToVector3(lat: number, lon: number, radius: number): THREE.Vector3 {
@@ -108,10 +114,10 @@ function projectToScreen(
 
 function VisitorPin({ 
   lat, lon, isCurrentUser, visitorId, globeRef, onPositionUpdate, onPinClick,
-  city, country, connectedAt,
-}: { 
-  lat: number; 
-  lon: number; 
+  city, country, connectedAt, region, timezone, isp, ip,
+}: {
+  lat: number;
+  lon: number;
   isCurrentUser: boolean;
   visitorId: string;
   globeRef: React.RefObject<THREE.Group | null>;
@@ -120,6 +126,10 @@ function VisitorPin({
   city?: string;
   country?: string;
   connectedAt?: number;
+  region?: string;
+  timezone?: string;
+  isp?: string;
+  ip?: string;
 }) {
   const position = useMemo(() => latLongToVector3(lat, lon, 2.15), [lat, lon]);
   const labelPosition = useMemo(() => latLongToVector3(lat, lon, 2.5), [lat, lon]);
@@ -141,9 +151,15 @@ function VisitorPin({
         country: country || 'Unknown',
         connectedAt: connectedAt || Date.now(),
         type: isCurrentUser ? 'you' : 'live',
+        region,
+        timezone,
+        isp,
+        ip,
+        lat,
+        lng: lon,
       });
     }
-  }, [position, globeRef, camera, gl, onPinClick, city, country, connectedAt, isCurrentUser]);
+  }, [position, globeRef, camera, gl, onPinClick, city, country, connectedAt, isCurrentUser, region, timezone, isp, ip, lat, lon]);
 
   useFrame((state) => {
     frameCount.current++;
@@ -225,6 +241,8 @@ function HistoricalPin({ visitor, globeRef, onPinClick }: {
         country: visitor.country,
         connectedAt: visitor.connectedAt,
         type: 'historical',
+        lat: visitor.lat,
+        lng: visitor.lng,
       });
     }
   }, [position, globeRef, camera, gl, onPinClick, visitor]);
@@ -318,6 +336,10 @@ function RotatingGlobe({
             city={visitor.geo.city}
             country={visitor.geo.country}
             connectedAt={visitor.connectedAt}
+            region={visitor.geo.region}
+            timezone={visitor.geo.timezone}
+            isp={visitor.geo.isp}
+            ip={visitor.geo.ip}
           />
         );
       })}
@@ -435,21 +457,54 @@ function PinTooltip({ data, onClose }: { data: PinTooltipData; onClose: () => vo
         onClick={(e) => { e.stopPropagation(); onClose(); }}
       >
         <div
-          className="bg-cyber-bg/95 backdrop-blur-xl px-3 py-2 rounded-lg border shadow-xl whitespace-nowrap"
-          style={{ borderColor: `${color}33` }}
+          className="bg-cyber-bg/95 backdrop-blur-xl px-4 py-3 rounded-xl border shadow-xl min-w-[200px]"
+          style={{ borderColor: `${color}33`, boxShadow: `0 4px 20px ${color}15` }}
         >
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: color }} />
             <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color }}>
               {labelMap[data.type]}
             </span>
+            <span className="text-white/20 text-[9px] font-mono ml-auto">
+              {data.type === 'live' || data.type === 'you' ? 'now' : timeAgo(data.connectedAt)}
+            </span>
           </div>
-          <div className="text-white/80 text-[11px] font-display font-medium">
-            {data.city}, {data.country}
+
+          <div className="text-white/90 text-[12px] font-display font-semibold">
+            {data.city}{data.region ? `, ${data.region}` : ''}
           </div>
-          <div className="text-white/30 text-[9px] font-mono mt-0.5">
-            {data.type === 'live' || data.type === 'you' ? 'Connected now' : timeAgo(data.connectedAt)}
+          <div className="text-white/50 text-[10px] font-display mt-0.5">
+            {data.country}
           </div>
+
+          {(data.timezone || data.isp || data.lat != null) && (
+            <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
+              {data.timezone && (
+                <div className="flex items-center justify-between">
+                  <span className="text-white/25 text-[9px] font-mono uppercase">Timezone</span>
+                  <span className="text-white/50 text-[9px] font-mono">{data.timezone}</span>
+                </div>
+              )}
+              {data.isp && (
+                <div className="flex items-center justify-between">
+                  <span className="text-white/25 text-[9px] font-mono uppercase">ISP</span>
+                  <span className="text-white/50 text-[9px] font-mono truncate ml-3 max-w-[140px]">{data.isp}</span>
+                </div>
+              )}
+              {data.lat != null && data.lng != null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-white/25 text-[9px] font-mono uppercase">Coords</span>
+                  <span className="text-white/50 text-[9px] font-mono">{data.lat.toFixed(2)}°, {data.lng.toFixed(2)}°</span>
+                </div>
+              )}
+              {data.ip && (
+                <div className="flex items-center justify-between">
+                  <span className="text-white/25 text-[9px] font-mono uppercase">IP</span>
+                  <span className="text-[9px] font-mono" style={{ color: `${color}99` }}>{data.ip}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </motion.div>
     </AnimatePresence>,
@@ -477,7 +532,7 @@ export function Globe3D({ visitors, currentVisitorId, historicalVisitors, showAl
 
   const handlePinClick = useCallback((data: PinTooltipData) => {
     setTooltip(data);
-    setTimeout(() => setTooltip(null), 4000);
+    setTimeout(() => setTooltip(null), 8000);
   }, []);
 
   const currentLabelPos = currentVisitorId ? labelPositions[currentVisitorId] : null;
