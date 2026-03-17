@@ -497,6 +497,22 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
         <div className="flex justify-between"><span className="text-white/25">CPU Cores</span><span className="text-emerald-400/70">{spoofedData.cores}</span></div>
         <div className="flex justify-between"><span className="text-white/25">Timezone</span><span className="text-emerald-400/70">{spoofedData.timezone}</span></div>
       </div>
+
+      {/* Extension CTA */}
+      <div className="mt-4 pt-3 border-t border-emerald-500/10">
+        <p className="text-white/30 text-[9px] font-mono mb-3">
+          Want this protection for real? Get the AIntivirus browser extension.
+        </p>
+        <a
+          href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all text-emerald-400 text-[10px] font-display font-semibold uppercase tracking-widest"
+        >
+          <Chrome size={12} />
+          Add to Chrome
+        </a>
+      </div>
     </motion.div>
   );
 }
