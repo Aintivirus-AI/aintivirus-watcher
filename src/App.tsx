@@ -381,7 +381,7 @@ function CreepyIntroPopup({ visitor, onEnter }: { visitor: Visitor | null; onEnt
         </motion.p>
 
         {/* Creepy indicators */}
-        <div className="space-y-6 mb-14">
+        <div className="space-y-8 mb-14">
           {indicators.map((item, i) => (
             <AnimatePresence key={i}>
               {step > i && (
@@ -389,7 +389,7 @@ function CreepyIntroPopup({ visitor, onEnter }: { visitor: Visitor | null; onEnt
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.5 }}
-                  className="bg-cyber-bg-card/80 border border-white/5 rounded-xl px-6 py-5"
+                  className="bg-cyber-bg-card/80 border border-white/5 rounded-xl px-6 py-6"
                 >
                   <div className="flex items-start gap-4">
                     <div className="mt-1 shrink-0">{item.icon}</div>
