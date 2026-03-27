@@ -30,6 +30,7 @@
     "@react-three/fiber": "^9.5.0",
     "cesium": "^1.137.0",
     "framer-motion": "^12.27.0",
+    "libphonenumber-js": "^1.12.40",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

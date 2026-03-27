@@ -1,14 +1,18 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Phone, Globe, AtSign } from 'lucide-react';
+import { Search, Phone, Globe, AtSign, MapPin, Loader2 } from 'lucide-react';
+import { parsePhoneNumber, getCountryCallingCode, isValidPhoneNumber } from 'libphonenumber-js';
+import type { CountryCode } from 'libphonenumber-js';
 import { useProfileStore } from '../../store/useProfileStore';
 import { DataSection, DataRow, StatusRow } from '../ui/DataSection';
 
 // ============================================
 // OSINT TRACKER - Inspired by GhostTrack
+// All data from REAL sources: ipwho.is API,
+// libphonenumber-js, and browser signal detection.
 // ============================================
 
-// Platform definitions with detection methods
+// Platform detection types
 type DetectionMethod = 'login' | 'cookie' | 'referrer' | 'redirect' | 'favicon' | 'none';
 type DetectionStatus = 'detected' | 'inferred' | 'not_detected';
 
@@ -20,101 +24,315 @@ interface PlatformResult {
   detail: string;
 }
 
-// Phone number country prefixes with metadata
-const PHONE_PREFIXES: Record<string, { country: string; carrier_hint: string; risk: string }> = {
-  '+1': { country: 'United States / Canada', carrier_hint: 'AT&T / Verizon / T-Mobile', risk: 'Medium' },
-  '+44': { country: 'United Kingdom', carrier_hint: 'EE / Vodafone / Three', risk: 'Low' },
-  '+91': { country: 'India', carrier_hint: 'Jio / Airtel / Vi', risk: 'Medium' },
-  '+86': { country: 'China', carrier_hint: 'China Mobile / Unicom', risk: 'High' },
-  '+81': { country: 'Japan', carrier_hint: 'NTT / SoftBank / KDDI', risk: 'Low' },
-  '+49': { country: 'Germany', carrier_hint: 'Deutsche Telekom / Vodafone', risk: 'Low' },
-  '+33': { country: 'France', carrier_hint: 'Orange / SFR / Bouygues', risk: 'Low' },
-  '+7': { country: 'Russia', carrier_hint: 'MTS / Beeline / MegaFon', risk: 'High' },
-  '+55': { country: 'Brazil', carrier_hint: 'Claro / Vivo / TIM', risk: 'Medium' },
-  '+234': { country: 'Nigeria', carrier_hint: 'MTN / Glo / Airtel', risk: 'High' },
-};
+// ============================================
+// IP INTELLIGENCE — uses ipwho.is (same API as GhostTrack)
+// Free, no key, CORS-enabled
+// ============================================
 
-function generateFakeResults(query: string, type: 'phone' | 'ip') {
-  const seed = query.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  const rng = (i: number) => ((seed * 9301 + 49297 + i * 233) % 233280) / 233280;
-
-  if (type === 'phone') {
-    const prefix = Object.keys(PHONE_PREFIXES).find(p => query.startsWith(p)) || '+1';
-    const info = PHONE_PREFIXES[prefix] || PHONE_PREFIXES['+1'];
-    return {
-      prefix,
-      ...info,
-      lineType: rng(0) > 0.6 ? 'Mobile' : rng(1) > 0.5 ? 'VoIP' : 'Landline',
-      registered: rng(2) > 0.3,
-      spamReports: Math.floor(rng(3) * 15),
-      portingHistory: Math.floor(rng(4) * 3),
-      simSwapRisk: rng(5) > 0.7 ? 'High' : rng(6) > 0.4 ? 'Medium' : 'Low',
-    };
-  }
-
-  // IP type
-  return {
-    asn: `AS${Math.floor(rng(0) * 60000 + 1000)}`,
-    org: ['Cloudflare Inc.', 'Amazon Technologies', 'Google LLC', 'Microsoft Corp', 'DigitalOcean'][Math.floor(rng(1) * 5)],
-    tor: rng(2) > 0.9,
-    proxy: rng(3) > 0.8,
-    hosting: rng(4) > 0.6,
-    abuseScore: Math.floor(rng(5) * 100),
-    openPorts: [80, 443, 22, 8080, 3389, 25].filter((_, i) => rng(i + 10) > 0.5),
-    blacklisted: rng(6) > 0.75,
-    reverseHostnames: Math.floor(rng(7) * 5),
+interface IpWhoIsResponse {
+  success: boolean;
+  ip: string;
+  type: string;
+  continent: string;
+  continent_code: string;
+  country: string;
+  country_code: string;
+  region: string;
+  region_code: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  is_eu: boolean;
+  postal: string;
+  calling_code: string;
+  capital: string;
+  borders: string;
+  flag: { emoji: string };
+  connection: {
+    asn: number;
+    org: string;
+    isp: string;
+    domain: string;
+  };
+  timezone: {
+    id: string;
+    abbr: string;
+    is_dst: boolean;
+    offset: number;
+    utc: string;
+    current_time: string;
   };
 }
 
-// IP Deep Analysis component
 export function IPDeepAnalysisSection() {
   const network = useProfileStore((s) => s.network);
   const vpn = useProfileStore((s) => s.vpnDetection);
+  const [ipData, setIpData] = useState<IpWhoIsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const ipAnalysis = useMemo(() => {
-    if (!network.ip) return null;
-    return generateFakeResults(network.ip, 'ip') as ReturnType<typeof generateFakeResults> & {
-      asn: string; org: string; tor: boolean; proxy: boolean; hosting: boolean;
-      abuseScore: number; openPorts: number[]; blacklisted: boolean; reverseHostnames: number;
-    };
+  useEffect(() => {
+    if (!network.ip) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    // GhostTrack uses: http://ipwho.is/{ip}
+    fetch(`https://ipwho.is/${network.ip}`)
+      .then((res) => res.json())
+      .then((data: IpWhoIsResponse) => {
+        if (cancelled) return;
+        if (data.success === false) {
+          setError('IP lookup failed');
+        } else {
+          setIpData(data);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Failed to reach ipwho.is');
+          setLoading(false);
+        }
+      });
+
+    return () => { cancelled = true; };
   }, [network.ip]);
 
-  if (!ipAnalysis || !network.ip) return null;
+  if (!network.ip) return null;
 
-  const threatLevel = (ipAnalysis as any).abuseScore > 70 ? 'HIGH' : (ipAnalysis as any).abuseScore > 30 ? 'MEDIUM' : 'LOW';
-  const threatColor = threatLevel === 'HIGH' ? 'text-rose-400' : threatLevel === 'MEDIUM' ? 'text-amber-400' : 'text-emerald-400';
+  if (loading) {
+    return (
+      <DataSection title="IP Intelligence" icon={<Globe size={14} />}>
+        <div className="flex items-center gap-2 py-3">
+          <Loader2 size={12} className="text-cyber-cyan animate-spin" />
+          <span className="text-[10px] font-mono text-white/40">Querying ipwho.is for {network.ip}...</span>
+        </div>
+      </DataSection>
+    );
+  }
+
+  if (error || !ipData) {
+    return (
+      <DataSection title="IP Intelligence" icon={<Globe size={14} />}>
+        <DataRow label="IP Address" value={network.ip} valueColor="text-cyber-cyan" />
+        <DataRow label="Status" value={error || 'No data'} valueColor="text-rose-400" />
+        <DataRow label="ISP" value={network.isp} />
+        <DataRow label="City" value={network.city} />
+        <DataRow label="Country" value={network.country} />
+      </DataSection>
+    );
+  }
+
+  const mapsUrl = `https://www.google.com/maps/@${ipData.latitude},${ipData.longitude},8z`;
 
   return (
     <DataSection
       title="IP Intelligence"
       icon={<Globe size={14} />}
       badge={
-        <span className={`text-[9px] font-mono ${threatColor} bg-white/5 px-2 py-0.5 rounded`}>
-          THREAT: {threatLevel}
+        <span className="text-[9px] font-mono text-cyber-cyan bg-cyan-500/10 px-2 py-0.5 rounded">
+          ipwho.is
         </span>
       }
     >
-      <DataRow label="IP Address" value={network.ip} valueColor="text-cyber-cyan" />
-      <DataRow label="ASN" value={(ipAnalysis as any).asn} />
-      <DataRow label="Organization" value={(ipAnalysis as any).org} />
-      <DataRow label="ISP" value={network.isp} />
-      <DataRow label="City" value={`${network.city}, ${network.region}`} />
-      <DataRow label="Country" value={network.country} />
-      <DataRow label="Coordinates" value={network.latitude && network.longitude ? `${network.latitude.toFixed(4)}, ${network.longitude.toFixed(4)}` : null} />
-      <StatusRow label="Tor Exit Node" detected={(ipAnalysis as any).tor} alertOnDetect />
-      <StatusRow label="Known Proxy" detected={(ipAnalysis as any).proxy || vpn.likelyUsingVPN} alertOnDetect />
-      <StatusRow label="Hosting/DC" detected={(ipAnalysis as any).hosting} alertOnDetect />
-      <StatusRow label="Blacklisted" detected={(ipAnalysis as any).blacklisted} alertOnDetect />
-      <DataRow label="Abuse Score" value={`${(ipAnalysis as any).abuseScore}/100`} valueColor={(ipAnalysis as any).abuseScore > 50 ? 'text-rose-400' : 'text-emerald-400'} />
-      <DataRow label="Open Ports" value={(ipAnalysis as any).openPorts.length > 0 ? (ipAnalysis as any).openPorts.join(', ') : 'None detected'} />
-      <DataRow label="Reverse DNS" value={`${(ipAnalysis as any).reverseHostnames} hostname(s)`} />
+      <DataRow label="IP Address" value={ipData.ip} valueColor="text-cyber-cyan" />
+      <DataRow label="Type" value={ipData.type} />
+      <DataRow label="Continent" value={`${ipData.continent} (${ipData.continent_code})`} />
+      <DataRow label="Country" value={`${ipData.flag?.emoji || ''} ${ipData.country} (${ipData.country_code})`} />
+      <DataRow label="Region" value={`${ipData.region} (${ipData.region_code})`} />
+      <DataRow label="City" value={ipData.city} />
+      <DataRow label="Postal Code" value={ipData.postal || '—'} />
+      <DataRow label="Coordinates" value={`${ipData.latitude.toFixed(4)}, ${ipData.longitude.toFixed(4)}`} />
+      <DataRow label="EU Member" value={ipData.is_eu ? 'Yes' : 'No'} />
+      <DataRow label="Calling Code" value={ipData.calling_code ? `+${ipData.calling_code}` : '—'} />
+      <DataRow label="Capital" value={ipData.capital || '—'} />
+      <DataRow label="Borders" value={ipData.borders || 'None / Island' } />
+      <div className="py-2 border-b border-white/[0.03]">
+        <span className="text-[9px] font-mono text-white/25 uppercase tracking-wider">Connection</span>
+      </div>
+      <DataRow label="ASN" value={ipData.connection?.asn ? `AS${ipData.connection.asn}` : '—'} />
+      <DataRow label="Organization" value={ipData.connection?.org || '—'} />
+      <DataRow label="ISP" value={ipData.connection?.isp || '—'} />
+      <DataRow label="Domain" value={ipData.connection?.domain || '—'} />
+      <div className="py-2 border-b border-white/[0.03]">
+        <span className="text-[9px] font-mono text-white/25 uppercase tracking-wider">Timezone</span>
+      </div>
+      <DataRow label="Timezone" value={ipData.timezone?.id || '—'} />
+      <DataRow label="Abbreviation" value={ipData.timezone?.abbr || '—'} />
+      <DataRow label="UTC Offset" value={ipData.timezone?.utc || '—'} />
+      <DataRow label="DST Active" value={ipData.timezone?.is_dst ? 'Yes' : 'No'} />
+      <DataRow label="Current Time" value={ipData.timezone?.current_time || '—'} />
+      <div className="py-2 border-b border-white/[0.03]">
+        <span className="text-[9px] font-mono text-white/25 uppercase tracking-wider">Privacy</span>
+      </div>
+      <StatusRow label="VPN/Proxy Detected" detected={vpn.likelyUsingVPN} alertOnDetect />
+      <StatusRow label="Timezone Mismatch" detected={vpn.timezoneMismatch} alertOnDetect />
+      <StatusRow label="WebRTC Leak" detected={vpn.webrtcLeak} alertOnDetect />
+
+      {/* Google Maps link — same as GhostTrack */}
+      <div className="mt-3 pt-3 border-t border-white/5">
+        <a
+          href={mapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 text-[10px] font-mono text-cyber-cyan/70 hover:text-cyber-cyan transition-colors"
+        >
+          <MapPin size={10} />
+          View on Google Maps
+        </a>
+      </div>
     </DataSection>
   );
 }
 
-// Account & Platform Detection Scanner
-// Uses REAL browser signals: social login detection, crypto wallets,
-// referrer analysis, cookie/storage inspection, and browser capability inference.
+// ============================================
+// PHONE NUMBER INTELLIGENCE — uses libphonenumber-js
+// Same library as GhostTrack (Python phonenumbers → JS port)
+// User inputs their phone number, parsed entirely offline.
+// ============================================
+
+export function PhoneIntelSection() {
+  const [phoneInput, setPhoneInput] = useState('');
+  const [parsed, setParsed] = useState<{
+    valid: boolean;
+    possible: boolean;
+    country: string | null;
+    countryCode: string | null;
+    callingCode: string | null;
+    nationalNumber: string | null;
+    international: string | null;
+    uri: string | null;
+    numberType: string | null;
+  } | null>(null);
+
+  const handleLookup = () => {
+    const input = phoneInput.trim();
+    if (!input) return;
+
+    try {
+      const valid = isValidPhoneNumber(input);
+      const phone = parsePhoneNumber(input);
+      const cc = phone?.country;
+
+      let callingCode: string | null = null;
+      if (cc) {
+        try {
+          callingCode = '+' + getCountryCallingCode(cc as CountryCode);
+        } catch { /* ignore */ }
+      }
+
+      // Determine number type
+      const pType = phone?.getType?.();
+      const typeMap: Record<string, string> = {
+        'MOBILE': 'Mobile',
+        'FIXED_LINE': 'Fixed Line',
+        'FIXED_LINE_OR_MOBILE': 'Fixed Line or Mobile',
+        'TOLL_FREE': 'Toll-Free',
+        'PREMIUM_RATE': 'Premium Rate',
+        'SHARED_COST': 'Shared Cost',
+        'VOIP': 'VoIP',
+        'PERSONAL_NUMBER': 'Personal Number',
+        'PAGER': 'Pager',
+        'UAN': 'Universal Access Number',
+      };
+
+      setParsed({
+        valid,
+        possible: phone?.isPossible?.() ?? false,
+        country: cc ? new Intl.DisplayNames(['en'], { type: 'region' }).of(cc) || cc : null,
+        countryCode: cc || null,
+        callingCode,
+        nationalNumber: phone?.nationalNumber || null,
+        international: phone?.formatInternational?.() || null,
+        uri: phone?.getURI?.() || null,
+        numberType: pType ? (typeMap[pType] || pType) : null,
+      });
+    } catch {
+      setParsed({
+        valid: false,
+        possible: false,
+        country: null,
+        countryCode: null,
+        callingCode: null,
+        nationalNumber: phoneInput,
+        international: null,
+        uri: null,
+        numberType: null,
+      });
+    }
+  };
+
+  return (
+    <DataSection
+      title="Phone Intelligence"
+      icon={<Phone size={14} />}
+      badge={
+        <span className="text-[9px] font-mono text-white/30 bg-white/5 px-2 py-0.5 rounded">
+          libphonenumber
+        </span>
+      }
+    >
+      <div className="mb-3 pb-3 border-b border-white/5">
+        <p className="text-[9px] font-mono text-white/30 leading-relaxed mb-3">
+          Enter a phone number (with country code, e.g. +1 555 123 4567). Parsed entirely offline using Google's libphonenumber — no data is sent anywhere.
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="tel"
+            value={phoneInput}
+            onChange={(e) => setPhoneInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
+            placeholder="+1 555 123 4567"
+            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[11px] font-mono text-white/80 placeholder:text-white/20 focus:outline-none focus:border-cyber-cyan/30"
+          />
+          <button
+            onClick={handleLookup}
+            className="px-4 py-2 bg-cyber-cyan/10 border border-cyber-cyan/20 rounded-lg text-[10px] font-mono text-cyber-cyan hover:bg-cyber-cyan/20 transition-colors cursor-pointer"
+          >
+            Trace
+          </button>
+        </div>
+      </div>
+
+      {parsed && (
+        <>
+          <StatusRow label="Valid Number" detected={parsed.valid} />
+          <StatusRow label="Possible Number" detected={parsed.possible} />
+          <DataRow label="Country" value={parsed.country ? `${parsed.country} (${parsed.countryCode})` : 'Unknown'} />
+          <DataRow label="Calling Code" value={parsed.callingCode} />
+          <DataRow label="National Number" value={parsed.nationalNumber} />
+          <DataRow label="International Format" value={parsed.international} />
+          <DataRow label="Number Type" value={parsed.numberType || 'Unknown'} />
+          <DataRow label="URI" value={parsed.uri} />
+
+          {!parsed.valid && (
+            <div className="mt-2 pt-2 border-t border-white/5">
+              <p className="text-[9px] font-mono text-rose-400/60 leading-relaxed">
+                This number does not appear to be a valid phone number. Make sure to include the country code (e.g. +1 for US, +44 for UK).
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {!parsed && (
+        <div className="text-center py-3">
+          <Phone size={16} className="text-white/15 mx-auto mb-2" />
+          <p className="text-white/25 text-[10px] font-mono">Enter a phone number above to analyze</p>
+        </div>
+      )}
+    </DataSection>
+  );
+}
+
+// ============================================
+// ACCOUNT DETECTION — uses real browser signals
+// Social login SDKs, crypto wallet providers,
+// referrer, localStorage/sessionStorage, extensions
+// ============================================
+
 export function UsernameTrackerSection() {
   const socialLogins = useProfileStore((s) => s.socialLogins);
   const cryptoWallets = useProfileStore((s) => s.cryptoWallets);
@@ -127,7 +345,6 @@ export function UsernameTrackerSection() {
   const [scanProgress, setScanProgress] = useState(0);
   const [results, setResults] = useState<PlatformResult[]>([]);
 
-  // Run real detection scan
   useEffect(() => {
     if (scanComplete || scanning) return;
     const timer = setTimeout(() => {
@@ -144,112 +361,56 @@ export function UsernameTrackerSection() {
           const detected: PlatformResult[] = [];
           const referrer = document.referrer.toLowerCase();
 
-          // ── Social Login Detections (real) ──
-          if (socialLogins.google) {
-            detected.push({ name: 'Google', icon: '🔍', status: 'detected', method: 'login', detail: 'Active session detected via SDK/storage signals' });
-          }
-          if (socialLogins.facebook) {
-            detected.push({ name: 'Facebook', icon: '📘', status: 'detected', method: 'login', detail: 'FB SDK or auth tokens found in storage' });
-          }
-          if (socialLogins.twitter) {
-            detected.push({ name: 'Twitter/X', icon: '🐦', status: 'detected', method: 'login', detail: 'Twitter widget SDK or auth state detected' });
-          }
-          if (socialLogins.github) {
-            detected.push({ name: 'GitHub', icon: '🐙', status: 'detected', method: 'login', detail: 'GitHub auth tokens or Octokit SDK found' });
-          }
-          if (socialLogins.reddit) {
-            detected.push({ name: 'Reddit', icon: '🤖', status: 'detected', method: 'login', detail: 'Reddit session markers found in storage' });
-          }
+          // Social Login Detections
+          if (socialLogins.google) detected.push({ name: 'Google', icon: '🔍', status: 'detected', method: 'login', detail: 'Active session detected via SDK/storage signals' });
+          if (socialLogins.facebook) detected.push({ name: 'Facebook', icon: '📘', status: 'detected', method: 'login', detail: 'FB SDK or auth tokens found in storage' });
+          if (socialLogins.twitter) detected.push({ name: 'Twitter/X', icon: '🐦', status: 'detected', method: 'login', detail: 'Twitter widget SDK or auth state detected' });
+          if (socialLogins.github) detected.push({ name: 'GitHub', icon: '🐙', status: 'detected', method: 'login', detail: 'GitHub auth tokens or Octokit SDK found' });
+          if (socialLogins.reddit) detected.push({ name: 'Reddit', icon: '🤖', status: 'detected', method: 'login', detail: 'Reddit session markers found in storage' });
 
-          // ── Crypto Wallet Detections (real) ──
-          if (cryptoWallets.metamask) {
-            detected.push({ name: 'MetaMask', icon: '🦊', status: 'detected', method: 'login', detail: 'window.ethereum injected by MetaMask extension' });
-          }
-          if (cryptoWallets.phantom) {
-            detected.push({ name: 'Phantom', icon: '👻', status: 'detected', method: 'login', detail: 'window.phantom.solana provider detected' });
-          }
-          if (cryptoWallets.coinbase) {
-            detected.push({ name: 'Coinbase Wallet', icon: '🔵', status: 'detected', method: 'login', detail: 'Coinbase Wallet provider injected' });
-          }
-          if (cryptoWallets.braveWallet) {
-            detected.push({ name: 'Brave Wallet', icon: '🦁', status: 'detected', method: 'login', detail: 'Brave native wallet detected via isBraveWallet' });
-          }
-          if (cryptoWallets.trustWallet) {
-            detected.push({ name: 'Trust Wallet', icon: '🛡️', status: 'detected', method: 'login', detail: 'Trust Wallet provider injected' });
-          }
-          if (cryptoWallets.solflare) {
-            detected.push({ name: 'Solflare', icon: '☀️', status: 'detected', method: 'login', detail: 'Solflare wallet provider detected' });
-          }
+          // Crypto Wallet Detections
+          if (cryptoWallets.metamask) detected.push({ name: 'MetaMask', icon: '🦊', status: 'detected', method: 'login', detail: 'window.ethereum injected by MetaMask extension' });
+          if (cryptoWallets.phantom) detected.push({ name: 'Phantom', icon: '👻', status: 'detected', method: 'login', detail: 'window.phantom.solana provider detected' });
+          if (cryptoWallets.coinbase) detected.push({ name: 'Coinbase Wallet', icon: '🔵', status: 'detected', method: 'login', detail: 'Coinbase Wallet provider injected' });
+          if (cryptoWallets.braveWallet) detected.push({ name: 'Brave Wallet', icon: '🦁', status: 'detected', method: 'login', detail: 'Brave native wallet detected via isBraveWallet' });
+          if (cryptoWallets.trustWallet) detected.push({ name: 'Trust Wallet', icon: '🛡️', status: 'detected', method: 'login', detail: 'Trust Wallet provider injected' });
+          if (cryptoWallets.solflare) detected.push({ name: 'Solflare', icon: '☀️', status: 'detected', method: 'login', detail: 'Solflare wallet provider detected' });
 
-          // ── Referrer-based Detections (real) ──
-          if (referrer.includes('youtube.com')) {
-            detected.push({ name: 'YouTube', icon: '📺', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
-          }
-          if (referrer.includes('instagram.com')) {
-            detected.push({ name: 'Instagram', icon: '📷', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
-          }
-          if (referrer.includes('linkedin.com')) {
-            detected.push({ name: 'LinkedIn', icon: '💼', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
-          }
-          if (referrer.includes('tiktok.com')) {
-            detected.push({ name: 'TikTok', icon: '🎵', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
-          }
-          if (referrer.includes('discord.com') || referrer.includes('discord.gg')) {
-            detected.push({ name: 'Discord', icon: '🎮', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
-          }
-          if (referrer.includes('telegram.org') || referrer.includes('t.me')) {
-            detected.push({ name: 'Telegram', icon: '✈️', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
-          }
+          // Referrer-based Detections
+          if (referrer.includes('youtube.com')) detected.push({ name: 'YouTube', icon: '📺', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          if (referrer.includes('instagram.com')) detected.push({ name: 'Instagram', icon: '📷', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          if (referrer.includes('linkedin.com')) detected.push({ name: 'LinkedIn', icon: '💼', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          if (referrer.includes('tiktok.com')) detected.push({ name: 'TikTok', icon: '🎵', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          if (referrer.includes('discord.com') || referrer.includes('discord.gg')) detected.push({ name: 'Discord', icon: '🎮', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          if (referrer.includes('telegram.org') || referrer.includes('t.me')) detected.push({ name: 'Telegram', icon: '✈️', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
 
-          // ── Extension-based Detections (real) ──
+          // Extension-based Detections
           const extensions = fingerprints.extensionsDetected || [];
           const extStr = extensions.join(' ').toLowerCase();
           if (extStr.includes('lastpass') || extStr.includes('1password') || extStr.includes('bitwarden')) {
             detected.push({ name: 'Password Manager', icon: '🔐', status: 'detected', method: 'login', detail: `Extension detected: ${extensions.filter(e => /lastpass|1password|bitwarden/i.test(e)).join(', ')}` });
           }
 
-          // ── Browser-inferred Signals (real inferences, not fake data) ──
+          // Browser-inferred Signals
           const ua = browser.userAgent.toLowerCase();
-          if (ua.includes('brave')) {
-            detected.push({ name: 'Brave Browser', icon: '🦁', status: 'inferred', method: 'none', detail: 'User-Agent contains Brave identifier' });
-          }
-
-          // Gamepad API support → likely gamer (Steam/Discord/Twitch user)
+          if (ua.includes('brave')) detected.push({ name: 'Brave Browser', icon: '🦁', status: 'inferred', method: 'none', detail: 'User-Agent contains Brave identifier' });
           if (apiSupport.gamepads && hardware.gpu && /nvidia|radeon|geforce|rtx|gtx/i.test(hardware.gpu)) {
-            const alreadyHas = detected.some(d => d.name === 'Discord');
-            if (!alreadyHas) {
+            if (!detected.some(d => d.name === 'Discord')) {
               detected.push({ name: 'Gaming Platform', icon: '🎮', status: 'inferred', method: 'none', detail: `Gaming GPU (${hardware.gpu}) + Gamepad API → likely Steam/Discord user` });
             }
           }
+          if (apiSupport.midi) detected.push({ name: 'Music Platform', icon: '🎵', status: 'inferred', method: 'none', detail: 'MIDI API supported → likely uses music production/streaming services' });
 
-          // MIDI API → likely musician (SoundCloud/Spotify)
-          if (apiSupport.midi) {
-            detected.push({ name: 'Music Platform', icon: '🎵', status: 'inferred', method: 'none', detail: 'MIDI API supported → likely uses music production/streaming services' });
-          }
-
-          // ── Cookie/Storage scan (real) ──
+          // Cookie/Storage scan
           try {
             const allKeys = [...Object.keys(localStorage), ...Object.keys(sessionStorage)];
             const keyStr = allKeys.join(' ').toLowerCase();
-
-            if (keyStr.includes('spotify') && !detected.some(d => d.name === 'Spotify')) {
-              detected.push({ name: 'Spotify', icon: '🎧', status: 'detected', method: 'cookie', detail: 'Spotify tokens/state found in browser storage' });
-            }
-            if (keyStr.includes('discord') && !detected.some(d => d.name === 'Discord')) {
-              detected.push({ name: 'Discord', icon: '🎮', status: 'detected', method: 'cookie', detail: 'Discord session data found in storage' });
-            }
-            if ((keyStr.includes('slack') || keyStr.includes('slk_')) && !detected.some(d => d.name === 'Slack')) {
-              detected.push({ name: 'Slack', icon: '💬', status: 'detected', method: 'cookie', detail: 'Slack workspace tokens found in storage' });
-            }
-            if (keyStr.includes('notion') && !detected.some(d => d.name === 'Notion')) {
-              detected.push({ name: 'Notion', icon: '📝', status: 'detected', method: 'cookie', detail: 'Notion session data found in storage' });
-            }
-            if ((keyStr.includes('linkedin') || keyStr.includes('li_')) && !detected.some(d => d.name === 'LinkedIn')) {
-              detected.push({ name: 'LinkedIn', icon: '💼', status: 'detected', method: 'cookie', detail: 'LinkedIn tracking/session data found in storage' });
-            }
-          } catch {
-            // Storage access blocked
-          }
+            if (keyStr.includes('spotify') && !detected.some(d => d.name === 'Spotify')) detected.push({ name: 'Spotify', icon: '🎧', status: 'detected', method: 'cookie', detail: 'Spotify tokens/state found in browser storage' });
+            if (keyStr.includes('discord') && !detected.some(d => d.name === 'Discord')) detected.push({ name: 'Discord', icon: '🎮', status: 'detected', method: 'cookie', detail: 'Discord session data found in storage' });
+            if ((keyStr.includes('slack') || keyStr.includes('slk_')) && !detected.some(d => d.name === 'Slack')) detected.push({ name: 'Slack', icon: '💬', status: 'detected', method: 'cookie', detail: 'Slack workspace tokens found in storage' });
+            if (keyStr.includes('notion') && !detected.some(d => d.name === 'Notion')) detected.push({ name: 'Notion', icon: '📝', status: 'detected', method: 'cookie', detail: 'Notion session data found in storage' });
+            if ((keyStr.includes('linkedin') || keyStr.includes('li_')) && !detected.some(d => d.name === 'LinkedIn')) detected.push({ name: 'LinkedIn', icon: '💼', status: 'detected', method: 'cookie', detail: 'LinkedIn tracking/session data found in storage' });
+          } catch { /* storage blocked */ }
 
           setResults(detected);
         }
@@ -284,11 +445,7 @@ export function UsernameTrackerSection() {
             <span>{Math.floor(scanProgress)}%</span>
           </div>
           <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-cyber-cyan rounded-full"
-              initial={{ width: 0 }}
-              animate={{ width: `${scanProgress}%` }}
-            />
+            <motion.div className="h-full bg-cyber-cyan rounded-full" initial={{ width: 0 }} animate={{ width: `${scanProgress}%` }} />
           </div>
         </div>
       )}
@@ -303,59 +460,32 @@ export function UsernameTrackerSection() {
 
       {scanComplete && results.length > 0 && (
         <>
-          {/* Method breakdown */}
           <div className="flex flex-wrap gap-1.5 mb-3 pb-3 border-b border-white/5">
-            {detectedCount > 0 && (
-              <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400/70">
-                {detectedCount} confirmed
-              </span>
-            )}
-            {inferredCount > 0 && (
-              <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400/70">
-                {inferredCount} inferred
-              </span>
-            )}
+            {detectedCount > 0 && <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400/70">{detectedCount} confirmed</span>}
+            {inferredCount > 0 && <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400/70">{inferredCount} inferred</span>}
           </div>
-
-          {/* Results list */}
           <div className="space-y-0">
             {results.map((r, i) => (
-              <motion.div
-                key={`${r.name}-${i}`}
-                initial={{ opacity: 0, x: -5 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="py-2.5 border-b border-white/[0.03] last:border-0"
-              >
+              <motion.div key={`${r.name}-${i}`} initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} className="py-2.5 border-b border-white/[0.03] last:border-0">
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <span className="text-[11px]">{r.icon}</span>
                     <span className="text-[11px] text-white/80 font-medium">{r.name}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${
-                      r.status === 'detected'
-                        ? 'bg-emerald-500/10 text-emerald-400/80'
-                        : 'bg-amber-500/10 text-amber-400/80'
-                    }`}>
+                    <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${r.status === 'detected' ? 'bg-emerald-500/10 text-emerald-400/80' : 'bg-amber-500/10 text-amber-400/80'}`}>
                       {r.status === 'detected' ? 'CONFIRMED' : 'INFERRED'}
                     </span>
-                    {r.method !== 'none' && (
-                      <span className="text-[8px] font-mono text-white/20">
-                        via {r.method}
-                      </span>
-                    )}
+                    {r.method !== 'none' && <span className="text-[8px] font-mono text-white/20">via {r.method}</span>}
                   </div>
                 </div>
                 <p className="text-[9px] font-mono text-white/30 pl-[26px] leading-relaxed">{r.detail}</p>
               </motion.div>
             ))}
           </div>
-
-          {/* Transparency note */}
           <div className="mt-3 pt-3 border-t border-white/5">
             <p className="text-[9px] font-mono text-white/20 leading-relaxed">
-              Detection methods: social SDK globals, localStorage/sessionStorage keys, document.referrer, injected wallet providers, browser extension artifacts. No external API calls are made.
+              Detection methods: social SDK globals, localStorage/sessionStorage keys, document.referrer, injected wallet providers, browser extension artifacts. No external API calls.
             </p>
           </div>
         </>
@@ -371,57 +501,7 @@ export function UsernameTrackerSection() {
   );
 }
 
-// Phone Number Intelligence (simulated from detected country)
-export function PhoneIntelSection() {
-  const network = useProfileStore((s) => s.network);
-
-  const phonePrefix = useMemo(() => {
-    const countryToPrefix: Record<string, string> = {
-      'United States': '+1', 'Canada': '+1', 'United Kingdom': '+44',
-      'India': '+91', 'China': '+86', 'Japan': '+81', 'Germany': '+49',
-      'France': '+33', 'Russia': '+7', 'Brazil': '+55', 'Nigeria': '+234',
-    };
-    return countryToPrefix[network.country || ''] || '+1';
-  }, [network.country]);
-
-  const phoneData = useMemo(() => {
-    if (!network.country) return null;
-    const fakeNumber = `${phonePrefix}${Math.floor(Math.random() * 9000000000 + 1000000000)}`;
-    return generateFakeResults(fakeNumber, 'phone') as any;
-  }, [network.country, phonePrefix]);
-
-  if (!phoneData) return null;
-
-  return (
-    <DataSection
-      title="Telecom Intelligence"
-      icon={<Phone size={14} />}
-      badge={
-        <span className={`text-[9px] font-mono px-2 py-0.5 rounded ${
-          phoneData.risk === 'High' ? 'text-rose-400 bg-rose-500/10' :
-          phoneData.risk === 'Medium' ? 'text-amber-400 bg-amber-500/10' :
-          'text-emerald-400 bg-emerald-500/10'
-        }`}>
-          RISK: {phoneData.risk}
-        </span>
-      }
-    >
-      <DataRow label="Country Prefix" value={phoneData.prefix} />
-      <DataRow label="Country" value={phoneData.country} />
-      <DataRow label="Likely Carriers" value={phoneData.carrier_hint} />
-      <DataRow label="Line Type" value={phoneData.lineType} />
-      <StatusRow label="Number Active" detected={phoneData.registered} />
-      <DataRow label="Spam Reports" value={phoneData.spamReports} valueColor={phoneData.spamReports > 5 ? 'text-rose-400' : 'text-white/80'} />
-      <DataRow label="Porting History" value={`${phoneData.portingHistory} time(s)`} />
-      <DataRow label="SIM Swap Risk" value={phoneData.simSwapRisk} valueColor={
-        phoneData.simSwapRisk === 'High' ? 'text-rose-400' :
-        phoneData.simSwapRisk === 'Medium' ? 'text-amber-400' : 'text-emerald-400'
-      } />
-    </DataSection>
-  );
-}
-
-// Combined GhostTrack Section (all three)
+// Combined GhostTrack Section
 export function GhostTrackOSINTSection() {
   return (
     <>
