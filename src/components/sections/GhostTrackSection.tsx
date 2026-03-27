@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Phone, Globe, AtSign, MapPin, Loader2 } from 'lucide-react';
-import { parsePhoneNumber, getCountryCallingCode, isValidPhoneNumber } from 'libphonenumber-js';
+import { parsePhoneNumberFromString, getCountryCallingCode } from 'libphonenumber-js';
 import type { CountryCode } from 'libphonenumber-js';
 import { useProfileStore } from '../../store/useProfileStore';
 import { DataSection, DataRow, StatusRow } from '../ui/DataSection';
@@ -212,10 +212,20 @@ export function PhoneIntelSection() {
     if (!input) return;
 
     try {
-      const valid = isValidPhoneNumber(input);
-      const phone = parsePhoneNumber(input);
-      const cc = phone?.country;
+      // parsePhoneNumberFromString handles numbers without + prefix
+      // by using a default country. Try with 'US' as default (like GhostTrack uses 'ID')
+      const phone = parsePhoneNumberFromString(input, 'US');
 
+      if (!phone) {
+        setParsed({
+          valid: false, possible: false,
+          country: null, countryCode: null, callingCode: null,
+          nationalNumber: input, international: null, uri: null, numberType: null,
+        });
+        return;
+      }
+
+      const cc = phone.country;
       let callingCode: string | null = null;
       if (cc) {
         try {
@@ -223,8 +233,7 @@ export function PhoneIntelSection() {
         } catch { /* ignore */ }
       }
 
-      // Determine number type
-      const pType = phone?.getType?.();
+      const pType = phone.getType?.();
       const typeMap: Record<string, string> = {
         'MOBILE': 'Mobile',
         'FIXED_LINE': 'Fixed Line',
@@ -239,27 +248,21 @@ export function PhoneIntelSection() {
       };
 
       setParsed({
-        valid,
-        possible: phone?.isPossible?.() ?? false,
+        valid: phone.isValid(),
+        possible: phone.isPossible(),
         country: cc ? new Intl.DisplayNames(['en'], { type: 'region' }).of(cc) || cc : null,
         countryCode: cc || null,
         callingCode,
-        nationalNumber: phone?.nationalNumber || null,
-        international: phone?.formatInternational?.() || null,
-        uri: phone?.getURI?.() || null,
+        nationalNumber: phone.nationalNumber || null,
+        international: phone.formatInternational?.() || null,
+        uri: phone.getURI?.() || null,
         numberType: pType ? (typeMap[pType] || pType) : null,
       });
     } catch {
       setParsed({
-        valid: false,
-        possible: false,
-        country: null,
-        countryCode: null,
-        callingCode: null,
-        nationalNumber: phoneInput,
-        international: null,
-        uri: null,
-        numberType: null,
+        valid: false, possible: false,
+        country: null, countryCode: null, callingCode: null,
+        nationalNumber: input, international: null, uri: null, numberType: null,
       });
     }
   };
