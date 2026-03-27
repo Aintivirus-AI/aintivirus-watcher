@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome, Eye, MapPin, Wifi, Monitor, Radio, Crosshair, Radar } from 'lucide-react';
+import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome, Eye, MapPin, Wifi, Monitor, Radio, Crosshair } from 'lucide-react';
 import type { Visitor } from './hooks/useVisitors';
 
 // Hooks
@@ -96,14 +96,6 @@ import {
   VitalSignsSection,
   SignalObservatorySection,
 } from './components/sections/SignalIntelligenceSection';
-
-// Global Threat Intelligence Sections (World Monitor inspired)
-import {
-  GlobalThreatStatsSection,
-  CountryRiskSection,
-  ThreatFeedSection,
-  NetworkThreatSection,
-} from './components/sections/GlobalThreatSection';
 
 // Store
 import { useProfileStore } from './store/useProfileStore';
@@ -500,7 +492,6 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
       presenceDetection: 'Signal noise injected — undetectable',
       vitalSigns: 'Behavioral signals scrambled',
       countryRisk: 'Location masked via VPN rotation',
-      exposureScore: '4/100 (minimal)',
     };
   }, []);
 
@@ -539,7 +530,6 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
         <div className="flex justify-between"><span className="text-white/25">Presence</span><span className="text-emerald-400/70">{spoofedData.presenceDetection}</span></div>
         <div className="flex justify-between"><span className="text-white/25">Vital Signs</span><span className="text-emerald-400/70">{spoofedData.vitalSigns}</span></div>
         <div className="flex justify-between"><span className="text-white/25">Location Intel</span><span className="text-emerald-400/70">{spoofedData.countryRisk}</span></div>
-        <div className="flex justify-between"><span className="text-white/25">Exposure</span><span className="text-emerald-400/70">{spoofedData.exposureScore}</span></div>
       </div>
 
       {/* Extension CTA */}
@@ -899,15 +889,6 @@ function App() {
                   <PresenceDetectionSection />
                   <VitalSignsSection />
                   <SignalObservatorySection />
-                </div>
-
-                {/* Global Threat Intelligence - World Monitor inspired */}
-                <div className="mb-8">
-                  <SectionTitle icon={<Radar size={14} />}>Global Threat Intelligence</SectionTitle>
-                  <GlobalThreatStatsSection />
-                  <CountryRiskSection />
-                  <ThreatFeedSection />
-                  <NetworkThreatSection />
                 </div>
 
                 {/* AI Summary */}
