@@ -97,6 +97,17 @@ import {
   SignalObservatorySection,
 } from './components/sections/SignalIntelligenceSection';
 
+// Advanced Detection Sections (CreepJS / FingerprintJS inspired)
+import {
+  CloudflareTraceSection,
+  LieDetectionSection,
+  DOMRectCSSSection,
+  KeyboardLayoutSection,
+  WebRTCLeakSection,
+  HeadlessDetectionSection,
+  AdvancedDisplaySection,
+} from './components/sections/AdvancedDetectionSection';
+
 // Store
 import { useProfileStore } from './store/useProfileStore';
 
@@ -920,24 +931,35 @@ function App() {
                   </SectionTitle>
 
                   <div className="mb-6">
+                    <SubsectionTitle>Spoof & Integrity Analysis</SubsectionTitle>
+                    <LieDetectionSection />
+                    <HeadlessDetectionSection />
+                  </div>
+
+                  <div className="mb-6">
                     <SubsectionTitle>Core Fingerprints</SubsectionTitle>
                     <CrossBrowserTrackingSection />
                     <BrowserInfoSection />
                     <AdvancedFingerprintsSection />
                     <FingerprintsSection />
+                    <DOMRectCSSSection />
                   </div>
 
                   <div className="mb-6">
                     <SubsectionTitle>Hardware & System</SubsectionTitle>
                     <HardwareSection />
                     <DisplaySection />
+                    <AdvancedDisplaySection />
                     <SensorsSection />
                     <StorageSection />
+                    <KeyboardLayoutSection />
                   </div>
 
                   <div className="mb-6">
                     <SubsectionTitle>Network & Privacy</SubsectionTitle>
+                    <CloudflareTraceSection />
                     <NetworkSection />
+                    <WebRTCLeakSection />
                     <VPNDetectionSection />
                     <TrackingDetectionSection />
                     <PermissionsSection />
