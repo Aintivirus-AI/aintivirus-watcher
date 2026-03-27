@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Phone, Globe, CheckCircle2, AtSign } from 'lucide-react';
+import { Search, Phone, Globe, AtSign } from 'lucide-react';
 import { useProfileStore } from '../../store/useProfileStore';
 import { DataSection, DataRow, StatusRow } from '../ui/DataSection';
 
@@ -8,29 +8,17 @@ import { DataSection, DataRow, StatusRow } from '../ui/DataSection';
 // OSINT TRACKER - Inspired by GhostTrack
 // ============================================
 
-// Simulated platform databases for username tracking
-const PLATFORMS = [
-  { name: 'Google', icon: '🔍', category: 'search' },
-  { name: 'Facebook', icon: '📘', category: 'social' },
-  { name: 'Instagram', icon: '📷', category: 'social' },
-  { name: 'Twitter/X', icon: '🐦', category: 'social' },
-  { name: 'LinkedIn', icon: '💼', category: 'professional' },
-  { name: 'Reddit', icon: '🤖', category: 'social' },
-  { name: 'GitHub', icon: '🐙', category: 'dev' },
-  { name: 'TikTok', icon: '🎵', category: 'social' },
-  { name: 'Pinterest', icon: '📌', category: 'social' },
-  { name: 'Telegram', icon: '✈️', category: 'messaging' },
-  { name: 'Discord', icon: '🎮', category: 'gaming' },
-  { name: 'Steam', icon: '🎮', category: 'gaming' },
-  { name: 'Spotify', icon: '🎧', category: 'media' },
-  { name: 'YouTube', icon: '📺', category: 'media' },
-  { name: 'Medium', icon: '📝', category: 'writing' },
-  { name: 'Twitch', icon: '🟣', category: 'streaming' },
-  { name: 'Snapchat', icon: '👻', category: 'social' },
-  { name: 'WhatsApp', icon: '💬', category: 'messaging' },
-  { name: 'Signal', icon: '🔒', category: 'messaging' },
-  { name: 'Keybase', icon: '🔑', category: 'security' },
-];
+// Platform definitions with detection methods
+type DetectionMethod = 'login' | 'cookie' | 'referrer' | 'redirect' | 'favicon' | 'none';
+type DetectionStatus = 'detected' | 'inferred' | 'not_detected';
+
+interface PlatformResult {
+  name: string;
+  icon: string;
+  status: DetectionStatus;
+  method: DetectionMethod;
+  detail: string;
+}
 
 // Phone number country prefixes with metadata
 const PHONE_PREFIXES: Record<string, { country: string; carrier_hint: string; risk: string }> = {
@@ -46,21 +34,9 @@ const PHONE_PREFIXES: Record<string, { country: string; carrier_hint: string; ri
   '+234': { country: 'Nigeria', carrier_hint: 'MTN / Glo / Airtel', risk: 'High' },
 };
 
-function generateFakeResults(query: string, type: 'username' | 'phone' | 'ip') {
+function generateFakeResults(query: string, type: 'phone' | 'ip') {
   const seed = query.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
   const rng = (i: number) => ((seed * 9301 + 49297 + i * 233) % 233280) / 233280;
-
-  if (type === 'username') {
-    return PLATFORMS.map((p, i) => ({
-      platform: p.name,
-      icon: p.icon,
-      category: p.category,
-      found: rng(i) > 0.45,
-      profileUrl: `https://${p.name.toLowerCase().replace(/[^a-z]/g, '')}.com/${query}`,
-      lastSeen: rng(i + 100) > 0.5 ? `${Math.floor(rng(i + 200) * 30) + 1}d ago` : 'Unknown',
-      confidence: Math.floor(rng(i + 300) * 40 + 60),
-    }));
-  }
 
   if (type === 'phone') {
     const prefix = Object.keys(PHONE_PREFIXES).find(p => query.startsWith(p)) || '+1';
@@ -136,107 +112,165 @@ export function IPDeepAnalysisSection() {
   );
 }
 
-// Username OSINT Scanner
+// Account & Platform Detection Scanner
+// Uses REAL browser signals: social login detection, crypto wallets,
+// referrer analysis, cookie/storage inspection, and browser capability inference.
 export function UsernameTrackerSection() {
   const socialLogins = useProfileStore((s) => s.socialLogins);
-  const network = useProfileStore((s) => s.network);
-  const hardware = useProfileStore((s) => s.hardware);
+  const cryptoWallets = useProfileStore((s) => s.cryptoWallets);
   const browser = useProfileStore((s) => s.browser);
+  const fingerprints = useProfileStore((s) => s.fingerprints);
+  const apiSupport = useProfileStore((s) => s.apiSupport);
+  const hardware = useProfileStore((s) => s.hardware);
   const [scanning, setScanning] = useState(false);
   const [scanComplete, setScanComplete] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<PlatformResult[]>([]);
 
-  // Build a unique seed from multiple signals so results vary per visitor
-  const scanSeed = useMemo(() => {
-    const parts = [
-      network.ip || '',
-      hardware.gpu || '',
-      browser.userAgent || '',
-      String(hardware.cpuCores || 0),
-      String(hardware.screenWidth || 0),
-      network.isp || '',
-      network.city || '',
-    ];
-    return parts.join('|').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  }, [network.ip, hardware.gpu, browser.userAgent, hardware.cpuCores, hardware.screenWidth, network.isp, network.city]);
-
-  // Derive detected logins for display
-  const detectedLogins = useMemo(() => {
-    const logins: string[] = [];
-    if (socialLogins.google) logins.push('Google');
-    if (socialLogins.github) logins.push('GitHub');
-    if (socialLogins.twitter) logins.push('Twitter/X');
-    if (socialLogins.facebook) logins.push('Facebook');
-    if (socialLogins.reddit) logins.push('Reddit');
-    return logins;
-  }, [socialLogins]);
-
-  // Auto-scan on mount (wait for network data to populate seed)
+  // Run real detection scan
   useEffect(() => {
     if (scanComplete || scanning) return;
     const timer = setTimeout(() => {
       setScanning(true);
       let progress = 0;
       const interval = setInterval(() => {
-        progress += Math.random() * 8 + 2;
+        progress += Math.random() * 6 + 3;
         if (progress >= 100) {
           progress = 100;
           clearInterval(interval);
           setScanning(false);
           setScanComplete(true);
 
-          // Generate results using the multi-signal seed
-          // Use a better RNG that produces varied results
-          const rng = (i: number) => {
-            const x = Math.sin(scanSeed * 0.001 + i * 127.1) * 43758.5453;
-            return x - Math.floor(x);
-          };
+          const detected: PlatformResult[] = [];
+          const referrer = document.referrer.toLowerCase();
 
-          const platformResults = PLATFORMS.map((p, i) => {
-            // Social logins that match a platform are always "found"
-            const isDetectedLogin = detectedLogins.some(
-              (l) => p.name.toLowerCase().includes(l.toLowerCase()) || l.toLowerCase().includes(p.name.toLowerCase().replace('/x', ''))
-            );
-            // Otherwise use RNG — aim for ~50-70% hit rate
-            const found = isDetectedLogin || rng(i) > 0.35;
-            return {
-              platform: p.name,
-              icon: p.icon,
-              category: p.category,
-              found,
-              profileUrl: `https://${p.name.toLowerCase().replace(/[^a-z]/g, '')}.com/user`,
-              lastSeen: found ? (rng(i + 100) > 0.4 ? `${Math.floor(rng(i + 200) * 28) + 1}d ago` : 'Recent') : 'Unknown',
-              confidence: found ? Math.floor(rng(i + 300) * 30 + 65) : 0,
-            };
-          });
+          // ── Social Login Detections (real) ──
+          if (socialLogins.google) {
+            detected.push({ name: 'Google', icon: '🔍', status: 'detected', method: 'login', detail: 'Active session detected via SDK/storage signals' });
+          }
+          if (socialLogins.facebook) {
+            detected.push({ name: 'Facebook', icon: '📘', status: 'detected', method: 'login', detail: 'FB SDK or auth tokens found in storage' });
+          }
+          if (socialLogins.twitter) {
+            detected.push({ name: 'Twitter/X', icon: '🐦', status: 'detected', method: 'login', detail: 'Twitter widget SDK or auth state detected' });
+          }
+          if (socialLogins.github) {
+            detected.push({ name: 'GitHub', icon: '🐙', status: 'detected', method: 'login', detail: 'GitHub auth tokens or Octokit SDK found' });
+          }
+          if (socialLogins.reddit) {
+            detected.push({ name: 'Reddit', icon: '🤖', status: 'detected', method: 'login', detail: 'Reddit session markers found in storage' });
+          }
 
-          setResults(platformResults);
+          // ── Crypto Wallet Detections (real) ──
+          if (cryptoWallets.metamask) {
+            detected.push({ name: 'MetaMask', icon: '🦊', status: 'detected', method: 'login', detail: 'window.ethereum injected by MetaMask extension' });
+          }
+          if (cryptoWallets.phantom) {
+            detected.push({ name: 'Phantom', icon: '👻', status: 'detected', method: 'login', detail: 'window.phantom.solana provider detected' });
+          }
+          if (cryptoWallets.coinbase) {
+            detected.push({ name: 'Coinbase Wallet', icon: '🔵', status: 'detected', method: 'login', detail: 'Coinbase Wallet provider injected' });
+          }
+          if (cryptoWallets.braveWallet) {
+            detected.push({ name: 'Brave Wallet', icon: '🦁', status: 'detected', method: 'login', detail: 'Brave native wallet detected via isBraveWallet' });
+          }
+          if (cryptoWallets.trustWallet) {
+            detected.push({ name: 'Trust Wallet', icon: '🛡️', status: 'detected', method: 'login', detail: 'Trust Wallet provider injected' });
+          }
+          if (cryptoWallets.solflare) {
+            detected.push({ name: 'Solflare', icon: '☀️', status: 'detected', method: 'login', detail: 'Solflare wallet provider detected' });
+          }
+
+          // ── Referrer-based Detections (real) ──
+          if (referrer.includes('youtube.com')) {
+            detected.push({ name: 'YouTube', icon: '📺', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          }
+          if (referrer.includes('instagram.com')) {
+            detected.push({ name: 'Instagram', icon: '📷', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          }
+          if (referrer.includes('linkedin.com')) {
+            detected.push({ name: 'LinkedIn', icon: '💼', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          }
+          if (referrer.includes('tiktok.com')) {
+            detected.push({ name: 'TikTok', icon: '🎵', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          }
+          if (referrer.includes('discord.com') || referrer.includes('discord.gg')) {
+            detected.push({ name: 'Discord', icon: '🎮', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          }
+          if (referrer.includes('telegram.org') || referrer.includes('t.me')) {
+            detected.push({ name: 'Telegram', icon: '✈️', status: 'detected', method: 'referrer', detail: `Referrer: ${document.referrer}` });
+          }
+
+          // ── Extension-based Detections (real) ──
+          const extensions = fingerprints.extensionsDetected || [];
+          const extStr = extensions.join(' ').toLowerCase();
+          if (extStr.includes('lastpass') || extStr.includes('1password') || extStr.includes('bitwarden')) {
+            detected.push({ name: 'Password Manager', icon: '🔐', status: 'detected', method: 'login', detail: `Extension detected: ${extensions.filter(e => /lastpass|1password|bitwarden/i.test(e)).join(', ')}` });
+          }
+
+          // ── Browser-inferred Signals (real inferences, not fake data) ──
+          const ua = browser.userAgent.toLowerCase();
+          if (ua.includes('brave')) {
+            detected.push({ name: 'Brave Browser', icon: '🦁', status: 'inferred', method: 'none', detail: 'User-Agent contains Brave identifier' });
+          }
+
+          // Gamepad API support → likely gamer (Steam/Discord/Twitch user)
+          if (apiSupport.gamepads && hardware.gpu && /nvidia|radeon|geforce|rtx|gtx/i.test(hardware.gpu)) {
+            const alreadyHas = detected.some(d => d.name === 'Discord');
+            if (!alreadyHas) {
+              detected.push({ name: 'Gaming Platform', icon: '🎮', status: 'inferred', method: 'none', detail: `Gaming GPU (${hardware.gpu}) + Gamepad API → likely Steam/Discord user` });
+            }
+          }
+
+          // MIDI API → likely musician (SoundCloud/Spotify)
+          if (apiSupport.midi) {
+            detected.push({ name: 'Music Platform', icon: '🎵', status: 'inferred', method: 'none', detail: 'MIDI API supported → likely uses music production/streaming services' });
+          }
+
+          // ── Cookie/Storage scan (real) ──
+          try {
+            const allKeys = [...Object.keys(localStorage), ...Object.keys(sessionStorage)];
+            const keyStr = allKeys.join(' ').toLowerCase();
+
+            if (keyStr.includes('spotify') && !detected.some(d => d.name === 'Spotify')) {
+              detected.push({ name: 'Spotify', icon: '🎧', status: 'detected', method: 'cookie', detail: 'Spotify tokens/state found in browser storage' });
+            }
+            if (keyStr.includes('discord') && !detected.some(d => d.name === 'Discord')) {
+              detected.push({ name: 'Discord', icon: '🎮', status: 'detected', method: 'cookie', detail: 'Discord session data found in storage' });
+            }
+            if ((keyStr.includes('slack') || keyStr.includes('slk_')) && !detected.some(d => d.name === 'Slack')) {
+              detected.push({ name: 'Slack', icon: '💬', status: 'detected', method: 'cookie', detail: 'Slack workspace tokens found in storage' });
+            }
+            if (keyStr.includes('notion') && !detected.some(d => d.name === 'Notion')) {
+              detected.push({ name: 'Notion', icon: '📝', status: 'detected', method: 'cookie', detail: 'Notion session data found in storage' });
+            }
+            if ((keyStr.includes('linkedin') || keyStr.includes('li_')) && !detected.some(d => d.name === 'LinkedIn')) {
+              detected.push({ name: 'LinkedIn', icon: '💼', status: 'detected', method: 'cookie', detail: 'LinkedIn tracking/session data found in storage' });
+            }
+          } catch {
+            // Storage access blocked
+          }
+
+          setResults(detected);
         }
         setScanProgress(Math.min(progress, 100));
-      }, 200);
+      }, 150);
       return () => clearInterval(interval);
-    }, 2500);
+    }, 2000);
     return () => clearTimeout(timer);
-  }, [scanSeed, detectedLogins, scanComplete, scanning]);
+  }, [socialLogins, cryptoWallets, browser, fingerprints, apiSupport, hardware, scanComplete, scanning]);
 
-  const foundCount = results.filter((r: any) => r.found).length;
-  const categories = useMemo(() => {
-    const cats: Record<string, number> = {};
-    results.filter((r: any) => r.found).forEach((r: any) => {
-      cats[r.category] = (cats[r.category] || 0) + 1;
-    });
-    return cats;
-  }, [results]);
+  const detectedCount = results.filter(r => r.status === 'detected').length;
+  const inferredCount = results.filter(r => r.status === 'inferred').length;
 
   return (
     <DataSection
-      title="Username OSINT"
+      title="Account Detection"
       icon={<AtSign size={14} />}
       badge={
         scanComplete ? (
           <span className="text-[9px] font-mono text-cyber-cyan bg-cyan-500/10 px-2 py-0.5 rounded">
-            {foundCount}/{PLATFORMS.length} FOUND
+            {detectedCount} DETECTED{inferredCount > 0 ? ` + ${inferredCount} INFERRED` : ''}
           </span>
         ) : scanning ? (
           <span className="text-[9px] font-mono text-amber-400 animate-pulse">SCANNING...</span>
@@ -246,7 +280,7 @@ export function UsernameTrackerSection() {
       {scanning && (
         <div className="mb-3">
           <div className="flex justify-between text-[9px] font-mono text-white/40 mb-1">
-            <span>Scanning {PLATFORMS.length} platforms...</span>
+            <span>Probing social SDKs, storage, referrer, extensions...</span>
             <span>{Math.floor(scanProgress)}%</span>
           </div>
           <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
@@ -259,44 +293,70 @@ export function UsernameTrackerSection() {
         </div>
       )}
 
-      {scanComplete && (
+      {scanComplete && results.length === 0 && (
+        <div className="py-3">
+          <p className="text-white/30 text-[10px] font-mono text-center">
+            No active accounts detected. You may be using incognito mode, have cleared storage, or have strong privacy protections.
+          </p>
+        </div>
+      )}
+
+      {scanComplete && results.length > 0 && (
         <>
-          {/* Category summary */}
+          {/* Method breakdown */}
           <div className="flex flex-wrap gap-1.5 mb-3 pb-3 border-b border-white/5">
-            {Object.entries(categories).map(([cat, count]) => (
-              <span key={cat} className="text-[9px] font-mono px-2 py-0.5 rounded bg-white/5 text-white/50">
-                {cat}: {count}
+            {detectedCount > 0 && (
+              <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400/70">
+                {detectedCount} confirmed
               </span>
-            ))}
+            )}
+            {inferredCount > 0 && (
+              <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400/70">
+                {inferredCount} inferred
+              </span>
+            )}
           </div>
 
           {/* Results list */}
           <div className="space-y-0">
-            {results.map((r: any, i: number) => (
+            {results.map((r, i) => (
               <motion.div
-                key={r.platform}
+                key={`${r.name}-${i}`}
                 initial={{ opacity: 0, x: -5 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.03 }}
-                className="flex items-center justify-between py-2 border-b border-white/[0.03] last:border-0"
+                transition={{ delay: i * 0.05 }}
+                className="py-2.5 border-b border-white/[0.03] last:border-0"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px]">{r.icon}</span>
-                  <span className={`text-[11px] ${r.found ? 'text-white/70' : 'text-white/25'}`}>{r.platform}</span>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px]">{r.icon}</span>
+                    <span className="text-[11px] text-white/80 font-medium">{r.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${
+                      r.status === 'detected'
+                        ? 'bg-emerald-500/10 text-emerald-400/80'
+                        : 'bg-amber-500/10 text-amber-400/80'
+                    }`}>
+                      {r.status === 'detected' ? 'CONFIRMED' : 'INFERRED'}
+                    </span>
+                    {r.method !== 'none' && (
+                      <span className="text-[8px] font-mono text-white/20">
+                        via {r.method}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {r.found ? (
-                    <>
-                      <span className="text-[9px] font-mono text-white/30">{r.lastSeen}</span>
-                      <span className="text-[9px] font-mono text-emerald-400/70">{r.confidence}%</span>
-                      <CheckCircle2 size={10} className="text-emerald-400/70" />
-                    </>
-                  ) : (
-                    <span className="text-[9px] font-mono text-white/20">Not found</span>
-                  )}
-                </div>
+                <p className="text-[9px] font-mono text-white/30 pl-[26px] leading-relaxed">{r.detail}</p>
               </motion.div>
             ))}
+          </div>
+
+          {/* Transparency note */}
+          <div className="mt-3 pt-3 border-t border-white/5">
+            <p className="text-[9px] font-mono text-white/20 leading-relaxed">
+              Detection methods: social SDK globals, localStorage/sessionStorage keys, document.referrer, injected wallet providers, browser extension artifacts. No external API calls are made.
+            </p>
           </div>
         </>
       )}
@@ -304,7 +364,7 @@ export function UsernameTrackerSection() {
       {!scanning && !scanComplete && (
         <div className="text-center py-4">
           <Search size={16} className="text-white/20 mx-auto mb-2" />
-          <p className="text-white/30 text-[10px] font-mono">Initializing OSINT scan...</p>
+          <p className="text-white/30 text-[10px] font-mono">Initializing account detection...</p>
         </div>
       )}
     </DataSection>
