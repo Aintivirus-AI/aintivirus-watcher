@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome, Eye, MapPin, Wifi, Monitor } from 'lucide-react';
+import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome, Eye, MapPin, Wifi, Monitor, Radio, Crosshair, Radar } from 'lucide-react';
 import type { Visitor } from './hooks/useVisitors';
 
 // Hooks
@@ -81,6 +81,29 @@ import {
   EmotionsSection,
   CopyPasteSection,
 } from './components/sections/BehaviorSections';
+
+// GhostTrack OSINT Sections
+import {
+  IPDeepAnalysisSection,
+  UsernameTrackerSection,
+  PhoneIntelSection,
+} from './components/sections/GhostTrackSection';
+
+// Signal Intelligence Sections (WiFi DensePose inspired)
+import {
+  WiFiScannerSection,
+  PresenceDetectionSection,
+  VitalSignsSection,
+  SignalObservatorySection,
+} from './components/sections/SignalIntelligenceSection';
+
+// Global Threat Intelligence Sections (World Monitor inspired)
+import {
+  GlobalThreatStatsSection,
+  CountryRiskSection,
+  ThreatFeedSection,
+  NetworkThreatSection,
+} from './components/sections/GlobalThreatSection';
 
 // Store
 import { useProfileStore } from './store/useProfileStore';
@@ -471,6 +494,13 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
       gpu: ['Generic Renderer', 'SwiftShader', 'ANGLE (Unknown)'][Math.floor(Math.random() * 3)],
       cores: [2, 4, 8][Math.floor(Math.random() * 3)],
       timezone: ['UTC', 'America/New_York', 'Europe/London', 'Asia/Tokyo'][Math.floor(Math.random() * 4)],
+      // Enhanced spoofed data for new sections
+      wifiNetworks: 'Randomized — 0 real SSIDs leaked',
+      osintResults: 'All platform checks blocked',
+      presenceDetection: 'Signal noise injected — undetectable',
+      vitalSigns: 'Behavioral signals scrambled',
+      countryRisk: 'Location masked via VPN rotation',
+      exposureScore: '4/100 (minimal)',
     };
   }, []);
 
@@ -496,6 +526,20 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
         <div className="flex justify-between"><span className="text-white/25">GPU</span><span className="text-emerald-400/70">{spoofedData.gpu}</span></div>
         <div className="flex justify-between"><span className="text-white/25">CPU Cores</span><span className="text-emerald-400/70">{spoofedData.cores}</span></div>
         <div className="flex justify-between"><span className="text-white/25">Timezone</span><span className="text-emerald-400/70">{spoofedData.timezone}</span></div>
+      </div>
+
+      {/* New section protections */}
+      <div className="mt-3 pt-3 border-t border-emerald-500/10 space-y-1.5 font-mono text-[9px]">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Shield size={10} className="text-emerald-400/60" />
+          <span className="text-emerald-400/60 text-[8px] uppercase tracking-widest">Enhanced Protection</span>
+        </div>
+        <div className="flex justify-between"><span className="text-white/25">WiFi Recon</span><span className="text-emerald-400/70">{spoofedData.wifiNetworks}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">OSINT Scan</span><span className="text-emerald-400/70">{spoofedData.osintResults}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">Presence</span><span className="text-emerald-400/70">{spoofedData.presenceDetection}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">Vital Signs</span><span className="text-emerald-400/70">{spoofedData.vitalSigns}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">Location Intel</span><span className="text-emerald-400/70">{spoofedData.countryRisk}</span></div>
+        <div className="flex justify-between"><span className="text-white/25">Exposure</span><span className="text-emerald-400/70">{spoofedData.exposureScore}</span></div>
       </div>
 
       {/* Extension CTA */}
@@ -838,6 +882,32 @@ function App() {
                   <EmotionsSection />
                   <MouseBehaviorSection />
                   <TypingBehaviorSection />
+                </div>
+
+                {/* OSINT Intelligence - GhostTrack inspired */}
+                <div className="mb-8">
+                  <SectionTitle icon={<Crosshair size={14} />}>OSINT Intelligence</SectionTitle>
+                  <IPDeepAnalysisSection />
+                  <UsernameTrackerSection />
+                  <PhoneIntelSection />
+                </div>
+
+                {/* Signal Intelligence - WiFi DensePose inspired */}
+                <div className="mb-8">
+                  <SectionTitle icon={<Radio size={14} />}>Signal Intelligence</SectionTitle>
+                  <WiFiScannerSection />
+                  <PresenceDetectionSection />
+                  <VitalSignsSection />
+                  <SignalObservatorySection />
+                </div>
+
+                {/* Global Threat Intelligence - World Monitor inspired */}
+                <div className="mb-8">
+                  <SectionTitle icon={<Radar size={14} />}>Global Threat Intelligence</SectionTitle>
+                  <GlobalThreatStatsSection />
+                  <CountryRiskSection />
+                  <ThreatFeedSection />
+                  <NetworkThreatSection />
                 </div>
 
                 {/* AI Summary */}
