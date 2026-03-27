@@ -139,22 +139,42 @@ export function IPDeepAnalysisSection() {
 // Username OSINT Scanner
 export function UsernameTrackerSection() {
   const socialLogins = useProfileStore((s) => s.socialLogins);
+  const network = useProfileStore((s) => s.network);
+  const hardware = useProfileStore((s) => s.hardware);
+  const browser = useProfileStore((s) => s.browser);
   const [scanning, setScanning] = useState(false);
   const [scanComplete, setScanComplete] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [results, setResults] = useState<any[]>([]);
 
-  // Derive a likely username from detected social logins
-  const detectedUsername = useMemo(() => {
-    if (socialLogins.github) return 'github_user';
-    if (socialLogins.google) return 'user';
-    if (socialLogins.twitter) return 'user';
-    if (socialLogins.reddit) return 'redditor';
-    return 'anonymous';
+  // Build a unique seed from multiple signals so results vary per visitor
+  const scanSeed = useMemo(() => {
+    const parts = [
+      network.ip || '',
+      hardware.gpu || '',
+      browser.userAgent || '',
+      String(hardware.cpuCores || 0),
+      String(hardware.screenWidth || 0),
+      network.isp || '',
+      network.city || '',
+    ];
+    return parts.join('|').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  }, [network.ip, hardware.gpu, browser.userAgent, hardware.cpuCores, hardware.screenWidth, network.isp, network.city]);
+
+  // Derive detected logins for display
+  const detectedLogins = useMemo(() => {
+    const logins: string[] = [];
+    if (socialLogins.google) logins.push('Google');
+    if (socialLogins.github) logins.push('GitHub');
+    if (socialLogins.twitter) logins.push('Twitter/X');
+    if (socialLogins.facebook) logins.push('Facebook');
+    if (socialLogins.reddit) logins.push('Reddit');
+    return logins;
   }, [socialLogins]);
 
-  // Auto-scan on mount
+  // Auto-scan on mount (wait for network data to populate seed)
   useEffect(() => {
+    if (scanComplete || scanning) return;
     const timer = setTimeout(() => {
       setScanning(true);
       let progress = 0;
@@ -165,14 +185,40 @@ export function UsernameTrackerSection() {
           clearInterval(interval);
           setScanning(false);
           setScanComplete(true);
-          setResults(generateFakeResults(detectedUsername, 'username') as any[]);
+
+          // Generate results using the multi-signal seed
+          // Use a better RNG that produces varied results
+          const rng = (i: number) => {
+            const x = Math.sin(scanSeed * 0.001 + i * 127.1) * 43758.5453;
+            return x - Math.floor(x);
+          };
+
+          const platformResults = PLATFORMS.map((p, i) => {
+            // Social logins that match a platform are always "found"
+            const isDetectedLogin = detectedLogins.some(
+              (l) => p.name.toLowerCase().includes(l.toLowerCase()) || l.toLowerCase().includes(p.name.toLowerCase().replace('/x', ''))
+            );
+            // Otherwise use RNG — aim for ~50-70% hit rate
+            const found = isDetectedLogin || rng(i) > 0.35;
+            return {
+              platform: p.name,
+              icon: p.icon,
+              category: p.category,
+              found,
+              profileUrl: `https://${p.name.toLowerCase().replace(/[^a-z]/g, '')}.com/user`,
+              lastSeen: found ? (rng(i + 100) > 0.4 ? `${Math.floor(rng(i + 200) * 28) + 1}d ago` : 'Recent') : 'Unknown',
+              confidence: found ? Math.floor(rng(i + 300) * 30 + 65) : 0,
+            };
+          });
+
+          setResults(platformResults);
         }
         setScanProgress(Math.min(progress, 100));
       }, 200);
       return () => clearInterval(interval);
-    }, 2000);
+    }, 2500);
     return () => clearTimeout(timer);
-  }, [detectedUsername]);
+  }, [scanSeed, detectedLogins, scanComplete, scanning]);
 
   const foundCount = results.filter((r: any) => r.found).length;
   const categories = useMemo(() => {
