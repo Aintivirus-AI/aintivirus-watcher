@@ -107,6 +107,9 @@ export function useAttentionTracker() {
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('keydown', handleFirstInteraction);
+      document.removeEventListener('mousemove', handleFirstInteraction);
       clearInterval(focusInterval);
     };
   }, [updateAttention, addConsoleEntry]);

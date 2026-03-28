@@ -11,7 +11,9 @@
     "build": "tsc && vite build",
     "build:prod": "npm run build && cd server && npm install",
     "start:prod": "cd server && node --import tsx index.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:server": "cd server && npm test"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
@@ -19,11 +21,14 @@
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.182.0",
     "@vitejs/plugin-react": "^5.1.2",
+    "@vitest/coverage-v8": "^4.1.2",
     "autoprefixer": "^10.4.23",
+    "jsdom": "^29.0.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.3",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

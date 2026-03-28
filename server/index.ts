@@ -23,7 +23,13 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 console.log(`[AI] Using local heuristic analysis engine ✓`);
 
 const app = express();
-app.use(cors());
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean);
+if (!allowedOrigins?.length) {
+  console.warn('[CORS] WARNING: ALLOWED_ORIGINS is not set. Cross-origin requests will be blocked.');
+}
+app.use(cors({ origin: allowedOrigins?.length ? allowedOrigins : false }));
+
 app.use(express.json());
 
 // Serve static frontend files at root
@@ -123,13 +129,30 @@ function generateId(): string {
   return `v_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
-// Get IP from request
+// Get IP from request — only trusts X-Forwarded-For when TRUST_PROXY=1 is set,
+// to prevent clients from spoofing their IP via the header.
 function getClientIp(req: express.Request | { headers: { [key: string]: string | undefined }, socket: { remoteAddress?: string } }): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
+  if (process.env.TRUST_PROXY === '1') {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+      return forwarded.split(',')[0].trim();
+    }
   }
   return req.socket?.remoteAddress || '127.0.0.1';
+}
+
+// Middleware: require x-api-key header matching API_SECRET env var
+function requireApiKey(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const secret = process.env.API_SECRET;
+  if (!secret) {
+    res.status(503).json({ error: 'API authentication not configured' });
+    return;
+  }
+  if (req.headers['x-api-key'] !== secret) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  next();
 }
 
 // Broadcast to all clients except sender
@@ -179,7 +202,7 @@ wss.on('connection', async (ws, req) => {
   const ip = getClientIp(req as any);
   const userAgent = req.headers['user-agent'] || 'Unknown';
 
-  console.log(`[${visitorId}] Connected from ${ip}`);
+  if (process.env.NODE_ENV !== 'production') console.log(`[${visitorId}] Connected from ${ip}`);
 
   // Mark connection as alive
   wsAlive.set(ws, true);
@@ -241,7 +264,7 @@ wss.on('connection', async (ws, req) => {
     ws
   );
 
-  console.log(`[${visitorId}] Location: ${geo?.city}, ${geo?.country} (${geo?.lat}, ${geo?.lng})`);
+  if (process.env.NODE_ENV !== 'production') console.log(`[${visitorId}] Location: ${geo?.city}, ${geo?.country} (${geo?.lat}, ${geo?.lng})`);
   console.log(`Total visitors: ${visitors.size}`);
 
   // Handle incoming messages (chat)
@@ -302,8 +325,8 @@ wss.on('close', () => {
   clearInterval(heartbeatInterval);
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
+// Health check endpoint (gated: leaks uptime and visitor counts)
+app.get('/health', requireApiKey, (_req, res) => {
   res.json({
     status: 'ok',
     visitors: visitors.size,
@@ -313,14 +336,14 @@ app.get('/health', (req, res) => {
 });
 
 // Get current visitors (REST fallback)
-app.get('/visitors', (req, res) => {
+app.get('/visitors', requireApiKey, (_req, res) => {
   res.json({
     visitors: Array.from(visitors.values()),
   });
 });
 
 // Get all-time visitor history
-app.get('/api/visitors/history', (_req, res) => {
+app.get('/api/visitors/history', requireApiKey, (_req, res) => {
   res.json({ visitors: visitorHistory });
 });
 
@@ -1131,12 +1154,21 @@ function generateLocalAnalysis(data: UserDataForAnalysis): AIAnalysisResponse['a
 app.post('/api/analyze', async (req, res) => {
   try {
     const userData: UserDataForAnalysis = req.body;
-    
-    if (!userData || !userData.hardware) {
+
+    if (
+      !userData ||
+      typeof userData !== 'object' ||
+      !userData.hardware ||
+      !userData.network ||
+      !userData.browser ||
+      !userData.fingerprints ||
+      !userData.behavioral ||
+      !userData.botDetection
+    ) {
       return res.status(400).json({ success: false, error: 'Invalid request data' });
     }
 
-    console.log(`[AI] Analysis request from ${userData.network.city || 'unknown'}, ${userData.network.country || 'unknown'}`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[AI] Analysis request from ${userData.network.city || 'unknown'}, ${userData.network.country || 'unknown'}`);
 
     // Use local heuristic analysis (more accurate than LLM speculation)
     const startTime = Date.now();

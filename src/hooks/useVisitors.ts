@@ -53,6 +53,31 @@ interface UseVisitorsReturn {
   sendChatMessage: (text: string) => void;
 }
 
+// Runtime type guards for WebSocket payload shapes
+export function isWelcomePayload(p: unknown): p is WelcomePayload {
+  return (
+    typeof p === 'object' && p !== null &&
+    'visitor' in p && typeof (p as WelcomePayload).visitor === 'object' &&
+    'visitors' in p && Array.isArray((p as WelcomePayload).visitors)
+  );
+}
+
+export function isVisitorEventPayload(p: unknown): p is VisitorEventPayload {
+  return typeof p === 'object' && p !== null && 'visitor' in p && typeof (p as VisitorEventPayload).visitor === 'object';
+}
+
+export function isVisitorsListPayload(p: unknown): p is { visitors: Visitor[] } {
+  return typeof p === 'object' && p !== null && 'visitors' in p && Array.isArray((p as { visitors: Visitor[] }).visitors);
+}
+
+export function isChatHistoryPayload(p: unknown): p is { messages: ChatMessage[] } {
+  return typeof p === 'object' && p !== null && 'messages' in p && Array.isArray((p as { messages: ChatMessage[] }).messages);
+}
+
+export function isChatMessagePayload(p: unknown): p is ChatMessage {
+  return typeof p === 'object' && p !== null && 'text' in p && typeof (p as ChatMessage).text === 'string';
+}
+
 // Dynamically determine WebSocket URL based on current host
 const getWebSocketUrl = () => {
   // Allow explicit override via env variable
@@ -119,7 +144,8 @@ export function useVisitors(): UseVisitorsReturn {
           
           switch (message.type) {
             case 'welcome': {
-              const payload = message.payload as WelcomePayload;
+              if (!isWelcomePayload(message.payload)) break;
+              const payload = message.payload;
               setCurrentVisitor(payload.visitor);
               setVisitors(payload.visitors);
               console.log(`[Visitors] Welcome! You are ${payload.visitor.id}. ${payload.visitors.length} visitors online.`);
@@ -127,7 +153,8 @@ export function useVisitors(): UseVisitorsReturn {
             }
 
             case 'visitor_joined': {
-              const payload = message.payload as VisitorEventPayload;
+              if (!isVisitorEventPayload(message.payload)) break;
+              const payload = message.payload;
               setVisitors((prev) => {
                 // Avoid duplicates
                 if (prev.find((v) => v.id === payload.visitor.id)) {
@@ -140,27 +167,28 @@ export function useVisitors(): UseVisitorsReturn {
             }
 
             case 'visitor_left': {
-              const payload = message.payload as VisitorEventPayload;
+              if (!isVisitorEventPayload(message.payload)) break;
+              const payload = message.payload;
               setVisitors((prev) => prev.filter((v) => v.id !== payload.visitor.id));
               console.log(`[Visitors] ${payload.visitor.id} left`);
               break;
             }
 
             case 'visitors_list': {
-              const payload = message.payload as { visitors: Visitor[] };
-              setVisitors(payload.visitors);
+              if (!isVisitorsListPayload(message.payload)) break;
+              setVisitors(message.payload.visitors);
               break;
             }
 
             case 'chat_history': {
-              const payload = message.payload as { messages: ChatMessage[] };
-              setChatMessages(payload.messages);
+              if (!isChatHistoryPayload(message.payload)) break;
+              setChatMessages(message.payload.messages);
               break;
             }
 
             case 'chat_message': {
-              const payload = message.payload as ChatMessage;
-              setChatMessages((prev) => [...prev, payload]);
+              if (!isChatMessagePayload(message.payload)) break;
+              setChatMessages((prev) => [...prev, message.payload as ChatMessage]);
               break;
             }
           }

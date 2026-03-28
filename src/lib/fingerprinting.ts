@@ -677,7 +677,7 @@ export function detectFonts(): number {
   const h = document.getElementsByTagName('body')[0];
   const s = document.createElement('span');
   s.style.fontSize = testSize;
-  s.innerHTML = testString;
+  s.textContent = testString;
   s.style.position = 'absolute';
   s.style.left = '-9999px';
   s.style.visibility = 'hidden';
@@ -831,8 +831,7 @@ export function getErrorFingerprint(): string {
   }
 
   try {
-    // @ts-ignore - intentional error
-    eval('function(){');
+    JSON.parse('{invalid');
   } catch (e: any) {
     errors.push(e.message || '');
   }
@@ -1210,7 +1209,7 @@ export function detectVM(): boolean {
 export async function detectAdBlocker(): Promise<boolean> {
   // Method 1: Try to load a fake ad
   const testAd = document.createElement('div');
-  testAd.innerHTML = '&nbsp;';
+  testAd.textContent = '\u00a0';
   testAd.className = 'adsbox ad-banner pub_300x250 pub_300x250m pub_728x90 text-ad textAd text_ad text_ads text-ads text-ad-links';
   testAd.style.cssText = 'width: 1px !important; height: 1px !important; position: absolute !important; left: -10000px !important; top: -1000px !important;';
   
@@ -1376,64 +1375,7 @@ export function detectSocialLogins(): { google: boolean; facebook: boolean; twit
   }
 
   // ============================================
-  // METHOD 3: Check localStorage for OAuth state
-  // Many sites store OAuth tokens/state in localStorage
-  // ============================================
-  try {
-    const localKeys = Object.keys(localStorage);
-    for (const key of localKeys) {
-      const keyLower = key.toLowerCase();
-      
-      // Google OAuth patterns
-      if (keyLower.includes('google') && (keyLower.includes('auth') || keyLower.includes('token') || keyLower.includes('user') || keyLower.includes('oauth'))) {
-        result.google = true;
-      }
-      // Firebase Auth (usually Google)
-      if (keyLower.includes('firebase:auth')) {
-        result.google = true;
-      }
-      
-      // Facebook patterns
-      if (keyLower.includes('facebook') || keyLower.includes('fb_') || keyLower.includes('fbsr_')) {
-        result.facebook = true;
-      }
-      
-      // Twitter patterns  
-      if (keyLower.includes('twitter') || keyLower.includes('twtr') || keyLower.includes('x.com')) {
-        result.twitter = true;
-      }
-      
-      // GitHub patterns
-      if (keyLower.includes('github') || keyLower.includes('gh_')) {
-        result.github = true;
-      }
-      
-      // Reddit patterns
-      if (keyLower.includes('reddit') || keyLower.includes('snoo')) {
-        result.reddit = true;
-      }
-    }
-  } catch {
-    // localStorage might be blocked
-  }
-
-  // ============================================
-  // METHOD 4: Check sessionStorage
-  // ============================================
-  try {
-    const sessionKeys = Object.keys(sessionStorage);
-    for (const key of sessionKeys) {
-      const keyLower = key.toLowerCase();
-      if (keyLower.includes('google') || keyLower.includes('gapi')) result.google = true;
-      if (keyLower.includes('facebook') || keyLower.includes('fb')) result.facebook = true;
-      if (keyLower.includes('twitter')) result.twitter = true;
-      if (keyLower.includes('github')) result.github = true;
-      if (keyLower.includes('reddit')) result.reddit = true;
-    }
-  } catch {}
-
-  // ============================================
-  // METHOD 5: Check for social login buttons/iframes
+  // METHOD 3: Check for social login buttons/iframes
   // Many sites have "Login with Google/Facebook" that inject elements
   // ============================================
   try {
@@ -1466,7 +1408,7 @@ export function detectSocialLogins(): { google: boolean; facebook: boolean; twit
   } catch {}
 
   // ============================================
-  // METHOD 6: IndexedDB database names
+  // METHOD 4: IndexedDB database names
   // Some OAuth flows store data in IndexedDB
   // ============================================
   if (typeof indexedDB !== 'undefined' && indexedDB.databases) {
@@ -1477,7 +1419,7 @@ export function detectSocialLogins(): { google: boolean; facebook: boolean; twit
           result.google = true;
         }
       }
-    }).catch(() => {});
+    }).catch((e: unknown) => { console.debug('[fingerprint] indexedDB.databases error', e); });
   }
 
   return result;
