@@ -21,7 +21,6 @@ import { Globe3D } from './components/Globe/Globe3D';
 import { AdAuction } from './components/AdAuction/AdAuction';
 import { ChatBox } from './components/Chat/ChatBox';
 import Navbar from './components/Navbar/Navbar';
-import Footer from './components/Footer/Footer';
 
 // AI Analysis Sections
 import {
@@ -935,8 +934,6 @@ function App() {
           </div>
         </main>
         
-        {/* Footer - at the very end, after all dashboard content */}
-        <Footer />
       </div>
     </>
   );
