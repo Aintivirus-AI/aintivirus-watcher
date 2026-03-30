@@ -6,14 +6,15 @@
  * https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
  */
 
+import net from 'net';
 import { Reader, type ReaderModel } from '@maxmind/geoip2-node';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/** Path to GeoLite2 database */
-const DB_PATH = join(__dirname, 'data', 'GeoLite2-City.mmdb');
+/** Path to GeoLite2 database — overridable via GEOIP_DB_PATH env var */
+const DB_PATH = process.env.GEOIP_DB_PATH ?? join(__dirname, 'data', 'GeoLite2-City.mmdb');
 
 /** Geolocation result interface */
 export interface GeoLocation {
@@ -53,7 +54,10 @@ async function initReader(): Promise<ReaderModel | null> {
 }
 
 // Initialize on startup
-initReader();
+initReader().catch((err: unknown) => {
+  console.error('[Geolocation] Fatal: failed to initialize reader:', err);
+  process.exit(1);
+});
 
 /**
  * Check if an IP is private/localhost
@@ -138,9 +142,13 @@ async function getGeolocationFromDatabase(ip: string): Promise<GeoLocation | nul
  * Fallback to external API when database is not available
  */
 async function getGeolocationFromAPI(ip: string): Promise<GeoLocation | null> {
+  if (!net.isIP(ip)) return null;
+
   try {
     // Try ipapi.co first (HTTPS, good accuracy, no key)
-    const response = await fetch(`https://ipapi.co/${ip}/json/`);
+    const ctrl1 = new AbortController();
+    const t1 = setTimeout(() => ctrl1.abort(), 5000);
+    const response = await fetch(`https://ipapi.co/${ip}/json/`, { signal: ctrl1.signal }).finally(() => clearTimeout(t1));
     if (response.ok) {
       const data = await response.json();
       if (!data.error) {
@@ -163,7 +171,9 @@ async function getGeolocationFromAPI(ip: string): Promise<GeoLocation | null> {
 
   try {
     // Fallback to ipinfo.io
-    const response = await fetch(`https://ipinfo.io/${ip}/json`);
+    const ctrl2 = new AbortController();
+    const t2 = setTimeout(() => ctrl2.abort(), 5000);
+    const response = await fetch(`https://ipinfo.io/${ip}/json`, { signal: ctrl2.signal }).finally(() => clearTimeout(t2));
     if (response.ok) {
       const data = await response.json();
       const [lat, lon] = (data.loc || '0,0').split(',').map(Number);
@@ -191,6 +201,11 @@ async function getGeolocationFromAPI(ip: string): Promise<GeoLocation | null> {
  * Uses local MaxMind database if available, falls back to external APIs
  */
 export async function getGeolocation(ip: string): Promise<GeoLocation | null> {
+  // Reject malformed addresses that aren't special private strings
+  if (!isPrivateIP(ip) && net.isIP(ip) === 0) {
+    return null;
+  }
+
   // Skip localhost/private IPs - return demo data for development
   if (isPrivateIP(ip)) {
     return {

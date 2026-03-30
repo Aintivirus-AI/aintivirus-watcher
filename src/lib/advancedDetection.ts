@@ -187,7 +187,6 @@ export function detectLies(): LieDetectionResult {
       const ext = gl.getExtension('WEBGL_debug_renderer_info');
       if (ext) {
         const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);
-        gl.getParameter(ext.UNMASKED_VENDOR_WEBGL); // read for side effects
         // SwiftShader = headless/virtual
         if (renderer && /swiftshader|software|llvmpipe/i.test(renderer)) {
           result.webglLie = true;
@@ -448,6 +447,7 @@ export async function getWebRTCLeakData(): Promise<WebRTCLeakData> {
 
   if (!window.RTCPeerConnection) return result;
 
+  let pcRef: RTCPeerConnection | null = null;
   try {
     const stunServers = [
       'stun:stun.l.google.com:19302',
@@ -458,6 +458,7 @@ export async function getWebRTCLeakData(): Promise<WebRTCLeakData> {
     const pc = new RTCPeerConnection({
       iceServers: stunServers.map(urls => ({ urls })),
     });
+    pcRef = pc;
 
     pc.createDataChannel('leak-test');
 
@@ -537,8 +538,9 @@ export async function getWebRTCLeakData(): Promise<WebRTCLeakData> {
       };
     });
 
-    pc.close();
-  } catch { /* WebRTC not available or blocked */ }
+  } catch { /* WebRTC not available or blocked */ } finally {
+    if (pcRef) pcRef.close();
+  }
 
   return result;
 }

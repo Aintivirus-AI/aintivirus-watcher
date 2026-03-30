@@ -31,7 +31,6 @@ export function useCopyPasteTracker() {
         const state = useProfileStore.getState();
         updateCopyPaste({
           textSelections: state.behavioral.copyPaste.textSelections + 1,
-          lastSelected: selectedText.substring(0, 100),
         });
 
         if (!hasLoggedRef.current) {

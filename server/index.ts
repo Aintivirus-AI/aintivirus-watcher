@@ -3,6 +3,7 @@
  * With Groq AI integration for intelligent user profiling
  */
 
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import express from 'express';
 import { createServer } from 'http';
@@ -28,7 +29,11 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()
 if (!allowedOrigins?.length) {
   console.warn('[CORS] WARNING: ALLOWED_ORIGINS is not set. Cross-origin requests will be blocked.');
 }
-app.use(cors({ origin: allowedOrigins?.length ? allowedOrigins : false }));
+app.use(cors({ origin: allowedOrigins?.length ? allowedOrigins : false, credentials: false }));
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', "default-src 'self'");
+  next();
+});
 
 app.use(express.json());
 
@@ -82,6 +87,7 @@ const MAX_CHAT_MESSAGES = 50;
 const chatMessages: ChatMessage[] = [];
 
 // Visitor history: in-memory primary store with optional file persistence
+const MAX_HISTORY_ENTRIES = 10000;
 const visitorHistory: HistoricalVisitor[] = [];
 let historyFileWritable = true;
 
@@ -95,17 +101,26 @@ const HISTORY_FILE = HISTORY_CANDIDATES.find((p) => {
 }) ?? HISTORY_CANDIDATES[0];
 
 // Load persisted history into memory on startup
+const MAX_HISTORY_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 try {
   if (fs.existsSync(HISTORY_FILE)) {
-    const data = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
-    if (Array.isArray(data)) visitorHistory.push(...data);
-    console.log(`[History] Loaded ${visitorHistory.length} entries from disk`);
+    const stat = fs.statSync(HISTORY_FILE);
+    if (stat.size > MAX_HISTORY_FILE_BYTES) {
+      console.warn('[History] History file exceeds size limit, starting with empty history');
+    } else {
+      const data = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
+      if (Array.isArray(data)) visitorHistory.push(...data);
+      console.log(`[History] Loaded ${visitorHistory.length} entries from disk`);
+    }
   }
 } catch {
   console.warn('[History] Could not read history file, starting with empty history');
 }
 
 function appendVisitorHistory(entry: HistoricalVisitor): void {
+  if (visitorHistory.length >= MAX_HISTORY_ENTRIES) {
+    visitorHistory.shift();
+  }
   visitorHistory.push(entry);
 
   if (!historyFileWritable) return;
@@ -126,12 +141,18 @@ const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 
 // Generate unique ID
 function generateId(): string {
-  return `v_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
+  return `v_${crypto.randomUUID()}`;
+}
+
+// Minimal interface accepted by getClientIp — satisfied by both express.Request and IncomingMessage
+interface RequestLike {
+  headers: { [key: string]: string | string[] | undefined };
+  socket: { remoteAddress?: string };
 }
 
 // Get IP from request — only trusts X-Forwarded-For when TRUST_PROXY=1 is set,
 // to prevent clients from spoofing their IP via the header.
-function getClientIp(req: express.Request | { headers: { [key: string]: string | undefined }, socket: { remoteAddress?: string } }): string {
+function getClientIp(req: RequestLike): string {
   if (process.env.TRUST_PROXY === '1') {
     const forwarded = req.headers['x-forwarded-for'];
     if (typeof forwarded === 'string') {
@@ -144,11 +165,9 @@ function getClientIp(req: express.Request | { headers: { [key: string]: string |
 // Middleware: require x-api-key header matching API_SECRET env var
 function requireApiKey(req: express.Request, res: express.Response, next: express.NextFunction): void {
   const secret = process.env.API_SECRET;
-  if (!secret) {
-    res.status(503).json({ error: 'API authentication not configured' });
-    return;
-  }
-  if (req.headers['x-api-key'] !== secret) {
+  const provided = req.headers['x-api-key'];
+  if (!secret || typeof provided !== 'string' || provided.length !== secret.length ||
+      !crypto.timingSafeEqual(Buffer.from(provided, 'utf8'), Buffer.from(secret, 'utf8'))) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
@@ -199,7 +218,7 @@ function cleanupVisitor(ws: WebSocket, reason: string = 'disconnected'): void {
 // WebSocket connection handler
 wss.on('connection', async (ws, req) => {
   const visitorId = generateId();
-  const ip = getClientIp(req as any);
+  const ip = getClientIp(req);
   const userAgent = req.headers['user-agent'] || 'Unknown';
 
   if (process.env.NODE_ENV !== 'production') console.log(`[${visitorId}] Connected from ${ip}`);
@@ -265,11 +284,15 @@ wss.on('connection', async (ws, req) => {
   );
 
   if (process.env.NODE_ENV !== 'production') console.log(`[${visitorId}] Location: ${geo?.city}, ${geo?.country} (${geo?.lat}, ${geo?.lng})`);
-  console.log(`Total visitors: ${visitors.size}`);
+  if (process.env.NODE_ENV !== 'production') console.log(`Total visitors: ${visitors.size}`);
 
   // Handle incoming messages (chat)
+  const MAX_WS_MESSAGE_BYTES = 4 * 1024; // 4 KB
   ws.on('message', (raw) => {
     try {
+      if (Buffer.byteLength(raw as Buffer) > MAX_WS_MESSAGE_BYTES) {
+        return; // drop oversized messages silently
+      }
       const msg = JSON.parse(raw.toString());
       if (msg.type === 'chat_message' && typeof msg.payload?.text === 'string') {
         const text = msg.payload.text.trim().slice(0, 500);
@@ -325,14 +348,9 @@ wss.on('close', () => {
   clearInterval(heartbeatInterval);
 });
 
-// Health check endpoint (gated: leaks uptime and visitor counts)
+// Health check endpoint
 app.get('/health', requireApiKey, (_req, res) => {
-  res.json({
-    status: 'ok',
-    visitors: visitors.size,
-    uptime: process.uptime(),
-    aiEnabled: true, // Local heuristics always available
-  });
+  res.json({ status: 'ok' });
 });
 
 // Get current visitors (REST fallback)
@@ -1151,7 +1169,7 @@ function generateLocalAnalysis(data: UserDataForAnalysis): AIAnalysisResponse['a
   };
 }
 
-app.post('/api/analyze', async (req, res) => {
+app.post('/api/analyze', requireApiKey, async (req, res) => {
   try {
     const userData: UserDataForAnalysis = req.body;
 
@@ -1175,7 +1193,7 @@ app.post('/api/analyze', async (req, res) => {
     const analysis = generateLocalAnalysis(userData);
     const elapsed = Date.now() - startTime;
     
-    console.log(`[AI] ✅ Local analysis complete (${elapsed}ms, confidence: ${analysis?.confidence || 0}%)`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[AI] ✅ Local analysis complete (${elapsed}ms, confidence: ${analysis?.confidence || 0}%)`);
     
     return res.json({ 
       success: true, 

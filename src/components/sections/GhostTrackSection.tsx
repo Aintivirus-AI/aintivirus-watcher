@@ -404,17 +404,6 @@ export function UsernameTrackerSection() {
           }
           if (apiSupport.midi) detected.push({ name: 'Music Platform', icon: '🎵', status: 'inferred', method: 'none', detail: 'MIDI API supported → likely uses music production/streaming services' });
 
-          // Cookie/Storage scan
-          try {
-            const allKeys = [...Object.keys(localStorage), ...Object.keys(sessionStorage)];
-            const keyStr = allKeys.join(' ').toLowerCase();
-            if (keyStr.includes('spotify') && !detected.some(d => d.name === 'Spotify')) detected.push({ name: 'Spotify', icon: '🎧', status: 'detected', method: 'cookie', detail: 'Spotify tokens/state found in browser storage' });
-            if (keyStr.includes('discord') && !detected.some(d => d.name === 'Discord')) detected.push({ name: 'Discord', icon: '🎮', status: 'detected', method: 'cookie', detail: 'Discord session data found in storage' });
-            if ((keyStr.includes('slack') || keyStr.includes('slk_')) && !detected.some(d => d.name === 'Slack')) detected.push({ name: 'Slack', icon: '💬', status: 'detected', method: 'cookie', detail: 'Slack workspace tokens found in storage' });
-            if (keyStr.includes('notion') && !detected.some(d => d.name === 'Notion')) detected.push({ name: 'Notion', icon: '📝', status: 'detected', method: 'cookie', detail: 'Notion session data found in storage' });
-            if ((keyStr.includes('linkedin') || keyStr.includes('li_')) && !detected.some(d => d.name === 'LinkedIn')) detected.push({ name: 'LinkedIn', icon: '💼', status: 'detected', method: 'cookie', detail: 'LinkedIn tracking/session data found in storage' });
-          } catch { /* storage blocked */ }
-
           setResults(detected);
         }
         setScanProgress(Math.min(progress, 100));

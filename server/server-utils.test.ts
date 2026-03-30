@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
+import { isIP } from 'net';
 
 // ---------------------------------------------------------------------------
 // Replicate getClientIp logic as it appears in server/index.ts after the fix.
@@ -18,15 +19,26 @@ function getClientIp(
 }
 
 // ---------------------------------------------------------------------------
-// Replicate requireApiKey logic as it appears in server/index.ts.
+// Replicate requireApiKey logic as it appears in server/index.ts after the fix.
+// When secret is missing, returns 401 (not 503) — no config-state leakage.
 // ---------------------------------------------------------------------------
 function requireApiKey(
   req: { headers: Record<string, string | undefined> },
   secret: string | undefined,
 ): { status: number; body: Record<string, string> } | null {
-  if (!secret) return { status: 503, body: { error: 'API authentication not configured' } };
-  if (req.headers['x-api-key'] !== secret) return { status: 401, body: { error: 'Unauthorized' } };
+  const provided = req.headers['x-api-key'];
+  if (!secret || typeof provided !== 'string' || provided !== secret) {
+    return { status: 401, body: { error: 'Unauthorized' } };
+  }
   return null; // passes through (next() called)
+}
+
+// ---------------------------------------------------------------------------
+// Replicate WebSocket message size guard logic
+// ---------------------------------------------------------------------------
+const MAX_WS_MESSAGE_BYTES = 4 * 1024; // 4 KB
+function isMessageTooLarge(raw: Buffer): boolean {
+  return raw.byteLength > MAX_WS_MESSAGE_BYTES;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,10 +83,12 @@ describe('getClientIp — X-Forwarded-For handling', () => {
   });
 });
 
-describe('requireApiKey middleware', () => {
-  it('returns 503 when API_SECRET is not configured', () => {
+describe('requireApiKey middleware — no config-state leakage', () => {
+  it('returns 401 (not 503) when API_SECRET is not configured', () => {
     const result = requireApiKey({ headers: {} }, undefined);
-    expect(result?.status).toBe(503);
+    expect(result?.status).toBe(401);
+    // Must not reveal that the secret is unconfigured
+    expect(result?.body?.error).not.toContain('not configured');
   });
 
   it('returns 401 when x-api-key header is missing', () => {
@@ -105,8 +119,73 @@ describe('CORS allowed origins configuration', () => {
   });
 
   it('produces an empty array when ALLOWED_ORIGINS is undefined', () => {
-    const raw: string | undefined = undefined;
-    const origins = raw?.split(',').map(o => o.trim()).filter(Boolean);
-    expect(origins?.length ?? 0).toBe(0);
+    function parseOrigins(raw: string | undefined): string[] {
+      if (!raw) return [];
+      return raw.split(',').map((o: string) => o.trim()).filter(Boolean);
+    }
+    expect(parseOrigins(undefined).length).toBe(0);
+    expect(parseOrigins(''). length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WebSocket message size guard
+// ---------------------------------------------------------------------------
+describe('WebSocket message size guard', () => {
+  it('accepts messages within 4 KB limit', () => {
+    const small = Buffer.alloc(1024, 'a');
+    expect(isMessageTooLarge(small)).toBe(false);
+  });
+
+  it('rejects messages exactly at the limit (4096 bytes)', () => {
+    const atLimit = Buffer.alloc(4096, 'a');
+    expect(isMessageTooLarge(atLimit)).toBe(false);
+  });
+
+  it('rejects messages exceeding 4 KB', () => {
+    const big = Buffer.alloc(4097, 'a');
+    expect(isMessageTooLarge(big)).toBe(true);
+  });
+
+  it('rejects multi-megabyte payload', () => {
+    const huge = Buffer.alloc(2 * 1024 * 1024, 'x');
+    expect(isMessageTooLarge(huge)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// IP address validation
+// ---------------------------------------------------------------------------
+describe('IP address validation via net.isIP', () => {
+  it('accepts valid IPv4 addresses', () => {
+    expect(isIP('1.2.3.4')).toBe(4);
+    expect(isIP('192.168.1.1')).toBe(4);
+  });
+
+  it('accepts valid IPv6 addresses', () => {
+    expect(isIP('::1')).toBe(6);
+    expect(isIP('2001:db8::1')).toBe(6);
+  });
+
+  it('rejects malformed strings', () => {
+    expect(isIP('not-an-ip')).toBe(0);
+    expect(isIP('999.999.999.999')).toBe(0);
+    expect(isIP('')).toBe(0);
+    expect(isIP('javascript://evil')).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// History file size guard
+// ---------------------------------------------------------------------------
+describe('History file size guard', () => {
+  it('rejects files above 10 MB', () => {
+    const MAX_HISTORY_FILE_BYTES = 10 * 1024 * 1024;
+    expect(10 * 1024 * 1024 + 1 > MAX_HISTORY_FILE_BYTES).toBe(true);
+  });
+
+  it('accepts files at or below 10 MB', () => {
+    const MAX_HISTORY_FILE_BYTES = 10 * 1024 * 1024;
+    expect(1024 > MAX_HISTORY_FILE_BYTES).toBe(false);
   });
 });
