@@ -35,6 +35,11 @@ export interface GeoLocation {
 let reader: ReaderModel | null = null;
 let initAttempted = false;
 
+/** Simple IP-to-result cache to avoid redundant external API calls */
+const geoCache = new Map<string, { result: GeoLocation | null; cachedAt: number }>();
+const GEO_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const GEO_CACHE_MAX = 5000;
+
 /** Initialize the database reader */
 async function initReader(): Promise<ReaderModel | null> {
   if (reader) return reader;
@@ -206,7 +211,7 @@ export async function getGeolocation(ip: string): Promise<GeoLocation | null> {
     return null;
   }
 
-  // Skip localhost/private IPs - return demo data for development
+  // Skip localhost/private IPs - return demo data for development (don't cache)
   if (isPrivateIP(ip)) {
     return {
       ip,
@@ -221,12 +226,21 @@ export async function getGeolocation(ip: string): Promise<GeoLocation | null> {
     };
   }
 
-  // Try local database first (more accurate)
-  const dbResult = await getGeolocationFromDatabase(ip);
-  if (dbResult) {
-    return dbResult;
+  // Return cached result if still fresh
+  const cached = geoCache.get(ip);
+  if (cached && Date.now() - cached.cachedAt < GEO_CACHE_TTL) {
+    return cached.result;
   }
 
-  // Fall back to external APIs
-  return getGeolocationFromAPI(ip);
+  // Try local database first (more accurate)
+  const dbResult = await getGeolocationFromDatabase(ip);
+  const result = dbResult ?? await getGeolocationFromAPI(ip);
+
+  // Cache result (evict oldest entry when at capacity)
+  if (geoCache.size >= GEO_CACHE_MAX) {
+    geoCache.delete(geoCache.keys().next().value!);
+  }
+  geoCache.set(ip, { result, cachedAt: Date.now() });
+
+  return result;
 }

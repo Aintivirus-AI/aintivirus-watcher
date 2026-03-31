@@ -1,6 +1,14 @@
 /**
  * Enhanced User Profiling Engine
- * 
+ *
+ * DISCLAIMER: All demographic inferences produced by this module are
+ * probabilistic estimates for educational demonstration purposes only.
+ * They are NOT definitive determinations about any individual. Outputs
+ * should be treated as illustrative examples of statistical correlations,
+ * not as facts about any specific user. Review for compliance with GDPR
+ * Article 22 (automated individual decision-making) and CCPA before use
+ * in any production context.
+ *
  * This module implements techniques similar to those used by large tech companies
  * to create accurate user profiles from browser signals. It uses multi-signal
  * correlation, probabilistic scoring, and extensive lookup databases.

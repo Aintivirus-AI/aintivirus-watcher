@@ -53,9 +53,14 @@ export function WiFiScannerSection() {
       icon={<Wifi size={14} />}
       badge={
         !scanning ? (
-          <span className="text-[9px] font-mono text-cyber-cyan bg-cyan-500/10 px-2 py-0.5 rounded">
-            {networks.length} NETWORKS
-          </span>
+          <>
+            <span className="text-[9px] font-mono text-cyber-cyan bg-cyan-500/10 px-2 py-0.5 rounded">
+              {networks.length} NETWORKS
+            </span>
+            <span className="text-[9px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded ml-1">
+              SIMULATED DATA
+            </span>
+          </>
         ) : (
           <span className="text-[9px] font-mono text-amber-400 animate-pulse">SCANNING...</span>
         )

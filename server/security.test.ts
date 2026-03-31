@@ -109,6 +109,166 @@ describe('visitorHistory cap', () => {
   });
 });
 
+// ── WebSocket connection cap ──────────────────────────────────────────────────
+
+const MAX_CONNECTIONS = 5000;
+
+/** Mimics the connection-cap guard added to wss.on('connection') */
+function shouldTerminate(currentClientCount: number): boolean {
+  return currentClientCount > MAX_CONNECTIONS;
+}
+
+describe('WebSocket connection cap', () => {
+  it('allows connections below the cap', () => {
+    expect(shouldTerminate(0)).toBe(false);
+    expect(shouldTerminate(MAX_CONNECTIONS - 1)).toBe(false);
+    expect(shouldTerminate(MAX_CONNECTIONS)).toBe(false);
+  });
+
+  it('rejects connections that exceed the cap', () => {
+    expect(shouldTerminate(MAX_CONNECTIONS + 1)).toBe(true);
+    expect(shouldTerminate(MAX_CONNECTIONS + 100)).toBe(true);
+  });
+});
+
+// ── Chat message HTML sanitization ───────────────────────────────────────────
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+describe('escapeHtml', () => {
+  it('encodes < and > to prevent tag injection', () => {
+    expect(escapeHtml('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  it('encodes & to prevent entity injection', () => {
+    expect(escapeHtml('a & b')).toBe('a &amp; b');
+  });
+
+  it('encodes quotes', () => {
+    expect(escapeHtml('"hello" \'world\'')).toBe('&quot;hello&quot; &#x27;world&#x27;');
+  });
+
+  it('leaves safe text unchanged', () => {
+    expect(escapeHtml('Hello world 123')).toBe('Hello world 123');
+  });
+
+  it('encodes a realistic XSS payload', () => {
+    const payload = '<img src=x onerror="alert(\'XSS\')">';
+    const encoded = escapeHtml(payload);
+    expect(encoded).not.toContain('<');
+    expect(encoded).not.toContain('>');
+  });
+});
+
+// ── Visitor history 30-day retention ─────────────────────────────────────────
+
+const HISTORY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function evictStaleEntries(history: { connectedAt: number }[], now: number): void {
+  const cutoff = now - HISTORY_RETENTION_MS;
+  let stale = 0;
+  while (stale < history.length && history[stale].connectedAt < cutoff) {
+    stale++;
+  }
+  if (stale > 0) history.splice(0, stale);
+}
+
+describe('visitor history retention policy', () => {
+  it('removes entries older than 30 days', () => {
+    const now = Date.now();
+    const history = [
+      { connectedAt: now - HISTORY_RETENTION_MS - 1000 }, // 30 days + 1s ago → stale
+      { connectedAt: now - HISTORY_RETENTION_MS + 1000 }, // just under 30 days → keep
+      { connectedAt: now },
+    ];
+    evictStaleEntries(history, now);
+    expect(history.length).toBe(2);
+    expect(history[0].connectedAt).toBeGreaterThan(now - HISTORY_RETENTION_MS);
+  });
+
+  it('keeps all entries when none are older than 30 days', () => {
+    const now = Date.now();
+    const history = [
+      { connectedAt: now - 1000 },
+      { connectedAt: now },
+    ];
+    evictStaleEntries(history, now);
+    expect(history.length).toBe(2);
+  });
+
+  it('removes all entries when all are older than 30 days', () => {
+    const now = Date.now();
+    const history = [
+      { connectedAt: now - HISTORY_RETENTION_MS * 2 },
+      { connectedAt: now - HISTORY_RETENTION_MS - 1 },
+    ];
+    evictStaleEntries(history, now);
+    expect(history.length).toBe(0);
+  });
+});
+
+// ── /api/analyze rate limiter ─────────────────────────────────────────────────
+
+interface RateEntry { count: number; resetAt: number }
+
+function checkRateLimit(
+  map: Map<string, RateEntry>,
+  ip: string,
+  now: number,
+  windowMs: number,
+  limit: number
+): 'allow' | 'reject' {
+  const entry = map.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    map.set(ip, { count: 1, resetAt: now + windowMs });
+    return 'allow';
+  }
+  if (entry.count >= limit) return 'reject';
+  entry.count++;
+  return 'allow';
+}
+
+describe('analyzeRateLimiter logic', () => {
+  it('allows the first LIMIT requests within the window', () => {
+    const map = new Map<string, RateEntry>();
+    const now = 1000;
+    for (let i = 0; i < 10; i++) {
+      expect(checkRateLimit(map, '1.2.3.4', now, 60_000, 10)).toBe('allow');
+    }
+  });
+
+  it('rejects the 11th request within the window', () => {
+    const map = new Map<string, RateEntry>();
+    const now = 1000;
+    for (let i = 0; i < 10; i++) checkRateLimit(map, '1.2.3.4', now, 60_000, 10);
+    expect(checkRateLimit(map, '1.2.3.4', now, 60_000, 10)).toBe('reject');
+  });
+
+  it('resets after the window expires', () => {
+    const map = new Map<string, RateEntry>();
+    const now = 1000;
+    for (let i = 0; i < 10; i++) checkRateLimit(map, '1.2.3.4', now, 60_000, 10);
+    // Advance past window
+    const later = now + 61_000;
+    expect(checkRateLimit(map, '1.2.3.4', later, 60_000, 10)).toBe('allow');
+  });
+
+  it('tracks different IPs independently', () => {
+    const map = new Map<string, RateEntry>();
+    const now = 1000;
+    for (let i = 0; i < 10; i++) checkRateLimit(map, '1.1.1.1', now, 60_000, 10);
+    // '2.2.2.2' has its own fresh window
+    expect(checkRateLimit(map, '2.2.2.2', now, 60_000, 10)).toBe('allow');
+  });
+});
+
 // ── IP validation in geolocation ─────────────────────────────────────────────
 
 describe('net.isIP validation', () => {

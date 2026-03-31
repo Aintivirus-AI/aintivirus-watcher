@@ -27,6 +27,10 @@ const app = express();
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean);
 if (!allowedOrigins?.length) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[CORS] FATAL: ALLOWED_ORIGINS must be set in production. Set it to a comma-separated list of allowed origins. Exiting.');
+    process.exit(1);
+  }
   console.warn('[CORS] WARNING: ALLOWED_ORIGINS is not set. Cross-origin requests will be blocked.');
 }
 app.use(cors({ origin: allowedOrigins?.length ? allowedOrigins : false, credentials: false }));
@@ -49,6 +53,39 @@ app.use(BASE_PATH, express.static(distPath));
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
+
+// Maximum concurrent WebSocket connections to prevent DoS
+const MAX_CONNECTIONS = 5000;
+
+// HTML entity encoder for chat messages to prevent XSS if clients render as HTML
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+// Simple sliding-window rate limiter for /api/analyze (10 req/min per IP)
+const analyzeRateMap = new Map<string, { count: number; resetAt: number }>();
+function analyzeRateLimiter(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const WINDOW_MS = 60_000;
+  const LIMIT = 10;
+  const entry = analyzeRateMap.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    analyzeRateMap.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+    return next();
+  }
+  if (entry.count >= LIMIT) {
+    res.status(429).json({ error: 'Too many requests' });
+    return;
+  }
+  entry.count++;
+  next();
+}
 
 // Types (GeoLocation imported from geolocation.ts)
 
@@ -117,7 +154,18 @@ try {
   console.warn('[History] Could not read history file, starting with empty history');
 }
 
+// Retention policy: 30 days
+const HISTORY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 function appendVisitorHistory(entry: HistoricalVisitor): void {
+  // Evict entries older than 30 days
+  const cutoff = Date.now() - HISTORY_RETENTION_MS;
+  let stale = 0;
+  while (stale < visitorHistory.length && visitorHistory[stale].connectedAt < cutoff) {
+    stale++;
+  }
+  if (stale > 0) visitorHistory.splice(0, stale);
+
   if (visitorHistory.length >= MAX_HISTORY_ENTRIES) {
     visitorHistory.shift();
   }
@@ -130,6 +178,8 @@ function appendVisitorHistory(entry: HistoricalVisitor): void {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(HISTORY_FILE, JSON.stringify(visitorHistory));
+    // Restrict file to owner read/write only (prevents world-readable PII)
+    try { fs.chmodSync(HISTORY_FILE, 0o600); } catch { /* ignore on platforms that don't support it */ }
   } catch {
     historyFileWritable = false;
     console.warn('[History] Filesystem not writable; history will be in-memory only');
@@ -217,6 +267,12 @@ function cleanupVisitor(ws: WebSocket, reason: string = 'disconnected'): void {
 
 // WebSocket connection handler
 wss.on('connection', async (ws, req) => {
+  // Enforce connection cap to prevent memory exhaustion DoS
+  if (wss.clients.size > MAX_CONNECTIONS) {
+    ws.terminate();
+    return;
+  }
+
   const visitorId = generateId();
   const ip = getClientIp(req);
   const userAgent = req.headers['user-agent'] || 'Unknown';
@@ -295,7 +351,7 @@ wss.on('connection', async (ws, req) => {
       }
       const msg = JSON.parse(raw.toString());
       if (msg.type === 'chat_message' && typeof msg.payload?.text === 'string') {
-        const text = msg.payload.text.trim().slice(0, 500);
+        const text = escapeHtml(msg.payload.text.trim().slice(0, 500));
         if (!text) return;
         const chatMsg: ChatMessage = { text, timestamp: Date.now() };
         chatMessages.push(chatMsg);
@@ -360,8 +416,8 @@ app.get('/visitors', requireApiKey, (_req, res) => {
   });
 });
 
-// Get all-time visitor history
-app.get('/api/visitors/history', requireApiKey, (_req, res) => {
+// Get all-time visitor history (public endpoint — consumed by client-side map)
+app.get('/api/visitors/history', (_req, res) => {
   res.json({ visitors: visitorHistory });
 });
 
@@ -1169,7 +1225,7 @@ function generateLocalAnalysis(data: UserDataForAnalysis): AIAnalysisResponse['a
   };
 }
 
-app.post('/api/analyze', requireApiKey, async (req, res) => {
+app.post('/api/analyze', analyzeRateLimiter, requireApiKey, async (req, res) => {
   try {
     const userData: UserDataForAnalysis = req.body;
 
@@ -1223,4 +1279,5 @@ server.listen(PORT, () => {
   console.log(`   Frontend: http://localhost:${PORT}${BASE_PATH}/`);
   console.log(`   WebSocket: ws://localhost:${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/health`);
+  console.log(`[Proxy] Trust proxy: ${process.env.TRUST_PROXY === '1' ? 'enabled (X-Forwarded-For trusted — deploy behind Nginx/Cloudflare/Railway)' : 'disabled (direct socket IP used)'}`);
 });
