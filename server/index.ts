@@ -31,11 +31,12 @@ if (!allowedOrigins?.length) {
     console.error('[CORS] FATAL: ALLOWED_ORIGINS must be set in production. Set it to a comma-separated list of allowed origins. Exiting.');
     process.exit(1);
   }
-  console.warn('[CORS] WARNING: ALLOWED_ORIGINS is not set. Cross-origin requests will be blocked.');
+  console.warn('[CORS] WARNING: ALLOWED_ORIGINS is not set. Defaulting to localhost origins for development.');
 }
-app.use(cors({ origin: allowedOrigins?.length ? allowedOrigins : false, credentials: false }));
+const devOrigins = ['http://localhost:5173', 'http://localhost:3001'];
+app.use(cors({ origin: allowedOrigins?.length ? allowedOrigins : devOrigins, credentials: false }));
 app.use((_req, res, next) => {
-  res.setHeader('Content-Security-Policy', "default-src 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'");
   next();
 });
 
@@ -66,6 +67,28 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;');
 }
+
+// Generic sliding-window rate limiter factory
+function makeRateLimiter(limit: number, windowMs: number) {
+  const rateMap = new Map<string, { count: number; resetAt: number }>();
+  return function rateLimiter(req: express.Request, res: express.Response, next: express.NextFunction): void {
+    const ip = getClientIp(req);
+    const now = Date.now();
+    const entry = rateMap.get(ip);
+    if (!entry || now >= entry.resetAt) {
+      rateMap.set(ip, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+    if (entry.count >= limit) {
+      res.status(429).json({ error: 'Too many requests' });
+      return;
+    }
+    entry.count++;
+    next();
+  };
+}
+
+const historyRateLimiter = makeRateLimiter(30, 60_000);
 
 // Simple sliding-window rate limiter for /api/analyze (10 req/min per IP)
 const analyzeRateMap = new Map<string, { count: number; resetAt: number }>();
@@ -177,9 +200,7 @@ function appendVisitorHistory(entry: HistoricalVisitor): void {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(visitorHistory));
-    // Restrict file to owner read/write only (prevents world-readable PII)
-    try { fs.chmodSync(HISTORY_FILE, 0o600); } catch { /* ignore on platforms that don't support it */ }
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(visitorHistory), { mode: 0o600 });
   } catch {
     historyFileWritable = false;
     console.warn('[History] Filesystem not writable; history will be in-memory only');
@@ -417,7 +438,7 @@ app.get('/visitors', requireApiKey, (_req, res) => {
 });
 
 // Get all-time visitor history (public endpoint — consumed by client-side map)
-app.get('/api/visitors/history', (_req, res) => {
+app.get('/api/visitors/history', historyRateLimiter, (_req, res) => {
   res.json({ visitors: visitorHistory });
 });
 
@@ -1225,22 +1246,36 @@ function generateLocalAnalysis(data: UserDataForAnalysis): AIAnalysisResponse['a
   };
 }
 
+function validateAnalyzePayload(body: unknown): body is UserDataForAnalysis {
+  if (!body || typeof body !== 'object') return false;
+  const d = body as Record<string, unknown>;
+  if (!d.hardware || typeof d.hardware !== 'object') return false;
+  if (!d.network || typeof d.network !== 'object') return false;
+  if (!d.browser || typeof d.browser !== 'object') return false;
+  if (!d.fingerprints || typeof d.fingerprints !== 'object') return false;
+  if (!d.behavioral || typeof d.behavioral !== 'object') return false;
+  if (!d.botDetection || typeof d.botDetection !== 'object') return false;
+  const hw = d.hardware as Record<string, unknown>;
+  if (hw.cpuCores !== null && typeof hw.cpuCores !== 'number') return false;
+  if (hw.ram !== null && typeof hw.ram !== 'number') return false;
+  if (typeof hw.screenWidth !== 'number' || hw.screenWidth < 0 || hw.screenWidth > 20000) return false;
+  if (typeof hw.screenHeight !== 'number' || hw.screenHeight < 0 || hw.screenHeight > 20000) return false;
+  const br = d.browser as Record<string, unknown>;
+  if (typeof br.userAgent !== 'string' || br.userAgent.length > 1024) return false;
+  if (typeof br.language !== 'string' || br.language.length > 64) return false;
+  if (!Array.isArray(br.languages)) return false;
+  const nw = d.network as Record<string, unknown>;
+  if (nw.city !== null && (typeof nw.city !== 'string' || nw.city.length > 256)) return false;
+  if (nw.country !== null && (typeof nw.country !== 'string' || nw.country.length > 64)) return false;
+  return true;
+}
+
 app.post('/api/analyze', analyzeRateLimiter, requireApiKey, async (req, res) => {
   try {
-    const userData: UserDataForAnalysis = req.body;
-
-    if (
-      !userData ||
-      typeof userData !== 'object' ||
-      !userData.hardware ||
-      !userData.network ||
-      !userData.browser ||
-      !userData.fingerprints ||
-      !userData.behavioral ||
-      !userData.botDetection
-    ) {
+    if (!validateAnalyzePayload(req.body)) {
       return res.status(400).json({ success: false, error: 'Invalid request data' });
     }
+    const userData: UserDataForAnalysis = req.body;
 
     if (process.env.NODE_ENV !== 'production') console.log(`[AI] Analysis request from ${userData.network.city || 'unknown'}, ${userData.network.country || 'unknown'}`);
 

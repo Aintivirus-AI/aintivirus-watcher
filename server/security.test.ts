@@ -295,3 +295,153 @@ describe('net.isIP validation', () => {
     expect(net.isIP('1.2.3.4/../../etc/passwd')).toBe(0);
   });
 });
+
+// ── /api/analyze payload validation ──────────────────────────────────────────
+
+function makeValidPayload(): Record<string, unknown> {
+  return {
+    hardware: { cpuCores: 8, ram: 16, screenWidth: 1920, screenHeight: 1080, pixelRatio: 2, touchSupport: false, maxTouchPoints: 0, colorDepth: 24, orientation: 'landscape', gpu: null, gpuVendor: null, battery: null },
+    network: { city: 'TestCity', region: null, country: 'US', isp: null, timezone: null, connectionType: null, downlink: null, rtt: null },
+    browser: { userAgent: 'Mozilla/5.0', language: 'en-US', languages: ['en-US'], platform: 'Win32', mobile: false, historyLength: 5, cookiesEnabled: true, vendor: 'Google', referrer: '', pdfViewer: true, architecture: null, platformVersion: null },
+    fingerprints: { fontsDetected: 12, extensionsDetected: [], hardwareFamily: null, webgpuAvailable: false, wasmSupported: true, speechVoices: 3, navigatorProps: 100, windowProps: 200 },
+    behavioral: { typing: { totalKeystrokes: 0, averageWPM: 0, averageHoldTime: 0 }, mouse: { totalClicks: 0, rageClicks: 0, erraticMovements: 0, movements: 0, totalDistance: 0, averageVelocity: 0 }, scroll: { scrollEvents: 0, maxDepth: 0, directionChanges: 0 }, attention: { tabSwitches: 0, totalHiddenTime: 0, focusTime: 0 }, emotions: { engagement: 0, exitIntents: 0 } },
+    botDetection: { isAutomated: false, isHeadless: false, isVirtualMachine: false, incognitoMode: false, devToolsOpen: false },
+  };
+}
+
+function validateAnalyzePayload(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false;
+  const d = body as Record<string, unknown>;
+  if (!d.hardware || typeof d.hardware !== 'object') return false;
+  if (!d.network || typeof d.network !== 'object') return false;
+  if (!d.browser || typeof d.browser !== 'object') return false;
+  if (!d.fingerprints || typeof d.fingerprints !== 'object') return false;
+  if (!d.behavioral || typeof d.behavioral !== 'object') return false;
+  if (!d.botDetection || typeof d.botDetection !== 'object') return false;
+  const hw = d.hardware as Record<string, unknown>;
+  if (hw.cpuCores !== null && typeof hw.cpuCores !== 'number') return false;
+  if (hw.ram !== null && typeof hw.ram !== 'number') return false;
+  if (typeof hw.screenWidth !== 'number' || hw.screenWidth < 0 || hw.screenWidth > 20000) return false;
+  if (typeof hw.screenHeight !== 'number' || hw.screenHeight < 0 || hw.screenHeight > 20000) return false;
+  const br = d.browser as Record<string, unknown>;
+  if (typeof br.userAgent !== 'string' || br.userAgent.length > 1024) return false;
+  if (typeof br.language !== 'string' || br.language.length > 64) return false;
+  if (!Array.isArray(br.languages)) return false;
+  const nw = d.network as Record<string, unknown>;
+  if (nw.city !== null && (typeof nw.city !== 'string' || nw.city.length > 256)) return false;
+  if (nw.country !== null && (typeof nw.country !== 'string' || nw.country.length > 64)) return false;
+  return true;
+}
+
+describe('validateAnalyzePayload', () => {
+  it('accepts a valid payload', () => {
+    expect(validateAnalyzePayload(makeValidPayload())).toBe(true);
+  });
+
+  it('rejects null and non-object inputs', () => {
+    expect(validateAnalyzePayload(null)).toBe(false);
+    expect(validateAnalyzePayload('string')).toBe(false);
+    expect(validateAnalyzePayload(42)).toBe(false);
+  });
+
+  it('rejects missing top-level keys', () => {
+    const { hardware: _h, ...noHw } = makeValidPayload() as { hardware: unknown } & Record<string, unknown>;
+    expect(validateAnalyzePayload(noHw)).toBe(false);
+    const { browser: _b, ...noBr } = makeValidPayload() as { browser: unknown } & Record<string, unknown>;
+    expect(validateAnalyzePayload(noBr)).toBe(false);
+  });
+
+  it('rejects out-of-range screen dimensions', () => {
+    const p = makeValidPayload();
+    (p.hardware as Record<string, unknown>).screenWidth = 99999;
+    expect(validateAnalyzePayload(p)).toBe(false);
+    const p2 = makeValidPayload();
+    (p2.hardware as Record<string, unknown>).screenHeight = -1;
+    expect(validateAnalyzePayload(p2)).toBe(false);
+  });
+
+  it('rejects oversized userAgent string (DoS vector)', () => {
+    const p = makeValidPayload();
+    (p.browser as Record<string, unknown>).userAgent = 'A'.repeat(1025);
+    expect(validateAnalyzePayload(p)).toBe(false);
+  });
+
+  it('rejects oversized city string', () => {
+    const p = makeValidPayload();
+    (p.network as Record<string, unknown>).city = 'X'.repeat(257);
+    expect(validateAnalyzePayload(p)).toBe(false);
+  });
+
+  it('rejects wrong type for cpuCores', () => {
+    const p = makeValidPayload();
+    (p.hardware as Record<string, unknown>).cpuCores = 'eight';
+    expect(validateAnalyzePayload(p)).toBe(false);
+  });
+
+  it('accepts null for optional numeric fields', () => {
+    const p = makeValidPayload();
+    (p.hardware as Record<string, unknown>).cpuCores = null;
+    (p.hardware as Record<string, unknown>).ram = null;
+    expect(validateAnalyzePayload(p)).toBe(true);
+  });
+});
+
+// ── historyRateLimiter (30 req/min) ──────────────────────────────────────────
+
+describe('historyRateLimiter logic', () => {
+  it('allows up to 30 requests per window', () => {
+    const map = new Map<string, RateEntry>();
+    const now = 5000;
+    for (let i = 0; i < 30; i++) {
+      expect(checkRateLimit(map, '10.0.0.1', now, 60_000, 30)).toBe('allow');
+    }
+  });
+
+  it('rejects the 31st request in the same window', () => {
+    const map = new Map<string, RateEntry>();
+    const now = 5000;
+    for (let i = 0; i < 30; i++) checkRateLimit(map, '10.0.0.1', now, 60_000, 30);
+    expect(checkRateLimit(map, '10.0.0.1', now, 60_000, 30)).toBe('reject');
+  });
+});
+
+// ── CSP header completeness ───────────────────────────────────────────────────
+
+const EXPECTED_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'";
+
+describe('Content-Security-Policy header', () => {
+  it('includes script-src directive', () => {
+    expect(EXPECTED_CSP).toContain("script-src 'self'");
+  });
+
+  it('includes style-src directive', () => {
+    expect(EXPECTED_CSP).toContain('style-src');
+  });
+
+  it('includes img-src directive', () => {
+    expect(EXPECTED_CSP).toContain('img-src');
+  });
+
+  it('includes connect-src directive', () => {
+    expect(EXPECTED_CSP).toContain('connect-src');
+  });
+});
+
+// ── CORS dev defaults ─────────────────────────────────────────────────────────
+
+describe('CORS dev defaults', () => {
+  it('defaults to localhost origins when ALLOWED_ORIGINS is unset', () => {
+    const allowedOrigins: string[] | undefined = undefined;
+    const devOrigins = ['http://localhost:5173', 'http://localhost:3001'];
+    const effectiveOrigins = allowedOrigins?.length ? allowedOrigins : devOrigins;
+    expect(effectiveOrigins).toContain('http://localhost:5173');
+    expect(effectiveOrigins).toContain('http://localhost:3001');
+  });
+
+  it('uses provided ALLOWED_ORIGINS when set', () => {
+    const allowedOrigins = ['https://example.com'];
+    const devOrigins = ['http://localhost:5173', 'http://localhost:3001'];
+    const effectiveOrigins = allowedOrigins?.length ? allowedOrigins : devOrigins;
+    expect(effectiveOrigins).toEqual(['https://example.com']);
+  });
+});

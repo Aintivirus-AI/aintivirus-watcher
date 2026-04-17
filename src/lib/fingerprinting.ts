@@ -817,14 +817,14 @@ export function getErrorFingerprint(): string {
   const errors: string[] = [];
 
   try {
-    // @ts-ignore - intentional error
+    // @ts-expect-error - intentional runtime error for browser fingerprinting
     null.toString();
   } catch (e: any) {
     errors.push(e.message || '');
   }
 
   try {
-    // @ts-ignore - intentional error
+    // @ts-expect-error - intentional runtime error for browser fingerprinting
     undefined.x;
   } catch (e: any) {
     errors.push(e.message || '');
@@ -964,7 +964,6 @@ export function getWasmFingerprint(): { features: string[]; maxMemory: number | 
   
   // Feature detection via feature-detect APIs
   try {
-    // @ts-ignore
     if (WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,10,9,1,7,0,18,0,11,0,11]))) {
       features.push('Tail Call');
     }
@@ -972,7 +971,6 @@ export function getWasmFingerprint(): { features: string[]; maxMemory: number | 
 
   try {
     // Bulk memory operations
-    // @ts-ignore
     if (WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,4,1,96,0,0,3,2,1,0,5,3,1,0,1,10,14,1,12,0,65,0,65,0,65,0,252,10,0,0,11]))) {
       features.push('Bulk Memory');
     }
@@ -1032,16 +1030,15 @@ export async function getWebGPUFingerprint(): Promise<{
   }
 
   try {
-    // @ts-ignore
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) return result;
 
     result.available = true;
-    // @ts-ignore - isFallbackAdapter may not be in types
+    // @ts-expect-error - isFallbackAdapter not yet in TypeScript WebGPU types
     result.fallbackAdapter = adapter.isFallbackAdapter || false;
 
     // Get adapter info
-    // @ts-ignore
+    // @ts-expect-error - requestAdapterInfo not yet in TypeScript WebGPU types
     const info = await adapter.requestAdapterInfo?.();
     if (info) {
       result.vendor = info.vendor || null;
@@ -1055,7 +1052,6 @@ export async function getWebGPUFingerprint(): Promise<{
     result.keyFeatures = features.slice(0, 10);
 
     // Get preferred canvas format
-    // @ts-ignore
     result.canvasFormat = navigator.gpu.getPreferredCanvasFormat?.() || null;
 
     // Simple compute timing test
@@ -1243,12 +1239,12 @@ export async function detectIncognito(): Promise<boolean> {
 
   // Method 2: FileSystem API (older Chrome)
   try {
-    // @ts-ignore
+    // @ts-expect-error - webkit prefixed API not in standard types
     if (window.webkitRequestFileSystem) {
       return new Promise((resolve) => {
-        // @ts-ignore
+        // @ts-expect-error - webkit prefixed API not in standard types
         window.webkitRequestFileSystem(
-          // @ts-ignore
+          // @ts-expect-error - webkit prefixed constant not in standard types
           window.TEMPORARY,
           100,
           () => resolve(false),
@@ -1700,17 +1696,16 @@ export async function getClientHints(): Promise<{
     browserVersions: null as string | null,
   };
 
-  // @ts-ignore
+  // @ts-expect-error - userAgentData not in all TypeScript lib versions
   if (!navigator.userAgentData) {
     return result;
   }
 
   try {
-    // @ts-ignore
+    // @ts-expect-error - userAgentData not in all TypeScript lib versions
     const uaData = navigator.userAgentData;
     result.mobile = uaData.mobile || false;
 
-    // @ts-ignore
     const highEntropy = await uaData.getHighEntropyValues([
       'architecture',
       'bitness',
@@ -1741,18 +1736,18 @@ export async function detectChromeAI(): Promise<{ supported: boolean; apis: stri
   const result = { supported: false, apis: [] as string[] };
 
   // Check for various Chrome AI APIs
-  // @ts-ignore
+  // @ts-expect-error - Chrome AI API not in TypeScript lib
   if (window.ai) {
     result.supported = true;
     result.apis.push('window.ai');
   }
 
-  // @ts-ignore
+  // @ts-expect-error - Chrome Translation API not in TypeScript lib
   if (window.translation) {
     result.apis.push('Translation API');
   }
 
-  // @ts-ignore
+  // @ts-expect-error - Navigator ML API not in TypeScript lib
   if (navigator.ml) {
     result.apis.push('Navigator ML');
   }
