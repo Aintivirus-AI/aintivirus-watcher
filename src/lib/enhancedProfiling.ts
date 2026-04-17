@@ -438,7 +438,6 @@ function analyzeReferrer(referrer: string): ReferrerAnalysis {
 export interface EnhancedProfile {
   // Demographics
   age: { range: string; confidence: number; signals: string[] };
-  gender: { likely: string; confidence: number; signals: string[] };
   income: { level: string; estimate: string; confidence: number; signals: string[] };
   education: { level: string; confidence: number; signals: string[] };
   
@@ -1351,11 +1350,6 @@ export function generateEnhancedProfile(
       range: ageRange,
       confidence: Math.min(75, ageConfidence + dataPointCount),
       signals: ageSignals,
-    },
-    gender: {
-      likely: 'unknown', // We don't have reliable signals for this
-      confidence: 20,
-      signals: ['Insufficient data for gender prediction'],
     },
     income: {
       level: incomeLevel,

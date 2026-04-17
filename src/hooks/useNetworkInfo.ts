@@ -69,48 +69,61 @@ const countryNames: Record<string, string> = {
   // Add more as needed
 };
 
+const GEO_FETCH_TIMEOUT_MS = 5_000;
+
+async function fetchWithTimeout(url: string, timeoutMs: number, signal: AbortSignal): Promise<Response> {
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort();
+  signal.addEventListener('abort', onParentAbort);
+
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', onParentAbort);
+  }
+}
+
 export function useNetworkInfo() {
   const { setNetwork, addConsoleEntry } = useProfileStore();
 
   useEffect(() => {
+    const abortController = new AbortController();
+
     // Get Network Information API data
     const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    
+    let onConnectionChange: (() => void) | null = null;
+
     if (connection) {
-      setNetwork({
+      const snapshot = () => ({
         connectionType: connection.effectiveType || null,
-        downlink: connection.downlink || null,
-        rtt: connection.rtt || null,
+        downlink: connection.downlink ?? null,
+        rtt: connection.rtt ?? null,
         dataSaver: connection.saveData || false,
       });
+
+      setNetwork(snapshot());
 
       addConsoleEntry('DATA', `Connection: ${connection.effectiveType || 'unknown'}`);
       if (connection.downlink) {
         addConsoleEntry('DATA', `Downlink: ${connection.downlink} Mbps`);
       }
-      if (connection.rtt) {
+      if (connection.rtt != null) {
         addConsoleEntry('DATA', `RTT: ${connection.rtt} ms`);
       }
 
-      // Listen for connection changes
-      connection.addEventListener('change', () => {
-        setNetwork({
-          connectionType: connection.effectiveType || null,
-          downlink: connection.downlink || null,
-          rtt: connection.rtt || null,
-          dataSaver: connection.saveData || false,
-        });
-      });
+      onConnectionChange = () => setNetwork(snapshot());
+      connection.addEventListener('change', onConnectionChange);
     }
 
-    // Try multiple APIs with fallback (all HTTPS, no API key required)
     const fetchFromIpApiCo = async (): Promise<NormalizedLocation> => {
-      const response = await fetch('https://ipapi.co/json/');
+      const response = await fetchWithTimeout('https://ipapi.co/json/', GEO_FETCH_TIMEOUT_MS, abortController.signal);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
+
       const data: IpApiCoResponse = await response.json();
       if (data.error) throw new Error(data.reason || 'API error');
-      
+
       return {
         ip: data.ip,
         city: data.city,
@@ -125,12 +138,12 @@ export function useNetworkInfo() {
     };
 
     const fetchFromIpInfo = async (): Promise<NormalizedLocation> => {
-      const response = await fetch('https://ipinfo.io/json');
+      const response = await fetchWithTimeout('https://ipinfo.io/json', GEO_FETCH_TIMEOUT_MS, abortController.signal);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
+
       const data: IpInfoResponse = await response.json();
-      const [lat, lon] = (data.loc || '0,0').split(',').map(Number);
-      
+      const [lat, lon] = (data.loc || '').split(',').map(Number);
+
       return {
         ip: data.ip,
         city: data.city || 'Unknown',
@@ -138,8 +151,8 @@ export function useNetworkInfo() {
         country: countryNames[data.country] || data.country,
         countryCode: data.country,
         isp: data.org || 'Unknown',
-        latitude: lat,
-        longitude: lon,
+        latitude: Number.isFinite(lat) ? lat : NaN,
+        longitude: Number.isFinite(lon) ? lon : NaN,
         timezone: data.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
     };
@@ -148,7 +161,6 @@ export function useNetworkInfo() {
       addConsoleEntry('SCAN', 'Tracing network origin...');
       setNetwork({ loading: true, error: null });
 
-      // List of API fetchers to try in order
       const apiFetchers = [
         { name: 'ipapi.co', fetch: fetchFromIpApiCo },
         { name: 'ipinfo.io', fetch: fetchFromIpInfo },
@@ -157,12 +169,16 @@ export function useNetworkInfo() {
       let lastError: Error | null = null;
 
       for (const api of apiFetchers) {
+        if (abortController.signal.aborted) return;
         try {
           addConsoleEntry('SCAN', `Trying ${api.name}...`);
           const data = await api.fetch();
+          if (abortController.signal.aborted) return;
 
-          // Validate we got real coordinates
-          if (data.latitude === 0 && data.longitude === 0) {
+          // Reject only when both coordinates are missing/invalid.
+          // (0, 0) is a valid point (Null Island) but it's rarely a real visitor;
+          // treat it as valid unless IP is obviously internal.
+          if (!Number.isFinite(data.latitude) || !Number.isFinite(data.longitude)) {
             throw new Error('Invalid coordinates');
           }
 
@@ -185,21 +201,28 @@ export function useNetworkInfo() {
           addConsoleEntry('DATA', `ISP: ${data.isp}`);
           addConsoleEntry('DATA', `Coordinates: ${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}`);
           addConsoleEntry('SYSTEM', `Network trace complete (via ${api.name})`);
-          
-          return; // Success, exit the loop
+
+          return;
         } catch (error) {
+          if (abortController.signal.aborted) return;
           lastError = error instanceof Error ? error : new Error('Unknown error');
           addConsoleEntry('ALERT', `${api.name} failed: ${lastError.message}`);
-          // Continue to next API
         }
       }
 
-      // All APIs failed
+      if (abortController.signal.aborted) return;
       const errorMessage = lastError?.message || 'All geolocation APIs failed';
       setNetwork({ loading: false, error: errorMessage });
       addConsoleEntry('ALERT', `Network trace failed: ${errorMessage}`);
     };
 
     fetchNetworkInfo();
+
+    return () => {
+      abortController.abort();
+      if (connection && onConnectionChange) {
+        connection.removeEventListener('change', onConnectionChange);
+      }
+    };
   }, [setNetwork, addConsoleEntry]);
 }

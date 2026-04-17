@@ -1431,3 +1431,235 @@ body.nav-no-scroll {
     width: 14px;
   }
 }
+
+/* ========================================
+   HUD PRIMITIVES (makeover)
+   ======================================== */
+
+/* HUD corner brackets — drop into any relative container */
+.hud-corner {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid rgba(0, 240, 255, 0.55);
+  pointer-events: none;
+  z-index: 30;
+  filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.35));
+}
+.hud-corner-tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; }
+.hud-corner-tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; }
+.hud-corner-bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; }
+.hud-corner-br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; }
+
+/* Longer arm variant for large panels */
+.hud-corner-lg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Radar sweep loader */
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.skeleton-radar {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at center, rgba(0, 240, 255, 0.06) 0%, transparent 60%),
+    rgba(5, 5, 10, 0.6);
+}
+.skeleton-radar::before {
+  content: '';
+  position: absolute;
+  width: min(70%, 320px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 240, 255, 0.04),
+    0 0 40px rgba(0, 240, 255, 0.06);
+}
+.skeleton-radar::after {
+  content: '';
+  position: absolute;
+  width: min(70%, 320px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(0, 240, 255, 0.22) 60deg,
+    transparent 90deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 30%, #000 31%);
+          mask: radial-gradient(circle, transparent 30%, #000 31%);
+  animation: radar-sweep 2.4s linear infinite;
+}
+.skeleton-radar-label {
+  position: relative;
+  z-index: 2;
+  font-family: var(--font-family-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(0, 240, 255, 0.65);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+}
+
+/* Pulse halo — for status dots */
+.pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.pulse-dot::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: inherit;
+  opacity: 0.35;
+  filter: blur(6px);
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* Section accent bar — gradient stripe for headers */
+.section-accent {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--color-cyber-cyan) 0%, var(--color-cyber-purple) 100%);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+}
+
+/* Animated tick marks — decorative header rule */
+.tick-rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 240, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.04) 30%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  position: relative;
+}
+.tick-rule::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Vignette behind the globe pane */
+.globe-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, transparent 0%, transparent 55%, rgba(5, 5, 10, 0.6) 100%);
+  z-index: 1;
+}
+
+/* Subtle radial spotlight behind content */
+.content-spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 50% 0%,
+    rgba(0, 240, 255, 0.05) 0%,
+    transparent 50%
+  );
+  z-index: 0;
+}
+
+/* Polished thin scrollbar override for inner panels */
+.scrollbar-hud::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-hud::-webkit-scrollbar-track {
+  background: rgba(5, 5, 10, 0.4);
+}
+.scrollbar-hud::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(0, 240, 255, 0.25), rgba(191, 90, 242, 0.25));
+  border-radius: 6px;
+  border: 1px solid rgba(5, 5, 10, 0.6);
+}
+.scrollbar-hud::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0, 240, 255, 0.5), rgba(191, 90, 242, 0.5));
+}
+
+/* Data section header — upgraded visual */
+.data-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  position: relative;
+  overflow: hidden;
+}
+.data-section-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 2px;
+  background: linear-gradient(180deg, var(--color-cyber-cyan), transparent);
+  opacity: 0.5;
+}
+
+/* Arrow-right icon inside hover-animated links */
+.nav-arrow-right {
+  display: inline-block;
+  transition: transform 0.2s var(--color-cyber-cyan);
+  transform: translateX(0);
+}
+.group:hover .nav-arrow-right {
+  transform: translateX(3px);
+}
+
+/* Badge with corner brackets style */
+.hud-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3rem 0.75rem;
+  background: rgba(10, 10, 20, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  border-radius: 999px;
+  font-family: var(--font-family-mono);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: rgba(240, 240, 245, 0.7);
+}
+
+/* Frame with corner brackets only (no borders) */
+.hud-frame {
+  position: relative;
+}
+.hud-frame > .hud-corner-tl,
+.hud-frame > .hud-corner-tr,
+.hud-frame > .hud-corner-bl,
+.hud-frame > .hud-corner-br {
+  position: absolute;
+}

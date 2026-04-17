@@ -14,34 +14,42 @@ export function useAttentionTracker() {
   const hasLoggedRef = useRef(false);
   const hiddenIntervalsRef = useRef<number[]>([]); // Track how long each hidden period lasted
 
+  // AFK threshold: a hidden period ≥ 30s counts as an AFK (away) event on return.
+  // Tab switches count every hidden event; AFK is the stricter "stepped away" signal.
+  const AFK_THRESHOLD_MS = 30_000;
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       const now = Date.now();
       const isVisible = document.visibilityState === 'visible';
 
       if (!isVisible) {
-        // Tab became hidden
+        // Tab became hidden — pause focus clock, count as tab switch only.
         lastHiddenRef.current = now;
         tabSwitchesRef.current++;
-        timesWentAFKRef.current++;
-        
-        // Add focus time
+
+        // Add focus time accumulated up to this hide event
         focusTimeRef.current += now - lastFocusRef.current;
-        
+
         addConsoleEntry('SYSTEM', `Tab switch detected (total: ${tabSwitchesRef.current})`);
       } else {
         // Tab became visible again
         lastFocusRef.current = now;
-        
+
         if (lastHiddenRef.current !== null) {
           const hiddenDuration = now - lastHiddenRef.current;
           hiddenTimeRef.current += hiddenDuration;
           hiddenIntervalsRef.current.push(hiddenDuration);
-          
+
+          // AFK only if absence crossed the threshold — avoids double-counting quick glances
+          if (hiddenDuration >= AFK_THRESHOLD_MS) {
+            timesWentAFKRef.current++;
+          }
+
           // Analyze the hidden pattern
           const shortSwitches = hiddenIntervalsRef.current.filter(d => d < 5000).length;
-          const longSwitches = hiddenIntervalsRef.current.filter(d => d >= 30000).length;
-          
+          const longSwitches = hiddenIntervalsRef.current.filter(d => d >= AFK_THRESHOLD_MS).length;
+
           if (hiddenDuration < 3000) {
             addConsoleEntry('INFO', `Quick tab switch (${Math.round(hiddenDuration / 1000)}s) - checking something else`);
           } else if (hiddenDuration > 60000) {
@@ -49,7 +57,7 @@ export function useAttentionTracker() {
           } else {
             addConsoleEntry('INFO', `User returned after ${Math.round(hiddenDuration / 1000)}s`);
           }
-          
+
           // Log attention pattern insight
           if (shortSwitches >= 5 && hiddenIntervalsRef.current.length > 5) {
             addConsoleEntry('DATA', `Attention pattern: rapid context-switching (${shortSwitches} quick switches) - possibly distracted or multitasking`);

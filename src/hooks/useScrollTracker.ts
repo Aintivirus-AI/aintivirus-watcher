@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useProfileStore } from '../store/useProfileStore';
+import { computeScrollDepthPercent } from '../utils/typingMath';
 
 export function useScrollTracker() {
   const { updateScroll, addConsoleEntry } = useProfileStore();
@@ -18,23 +19,28 @@ export function useScrollTracker() {
       const now = Date.now();
       const currentScrollTop = window.scrollY || document.documentElement.scrollTop;
       const dt = (now - lastScrollTime.current) / 1000;
-      
+
       scrollEvents.current++;
 
       if (dt > 0) {
         const distance = Math.abs(currentScrollTop - lastScrollTop.current);
         const speed = distance / dt;
 
-        // Detect direction change
-        const currentDirection = currentScrollTop > lastScrollTop.current ? 'down' : 'up';
-        if (lastDirection.current && lastDirection.current !== currentDirection) {
-          directionChanges.current++;
+        // Detect direction change (only on actual movement)
+        if (currentScrollTop !== lastScrollTop.current) {
+          const currentDirection = currentScrollTop > lastScrollTop.current ? 'down' : 'up';
+          if (lastDirection.current && lastDirection.current !== currentDirection) {
+            directionChanges.current++;
+          }
+          lastDirection.current = currentDirection;
         }
-        lastDirection.current = currentDirection;
 
-        // Track max scroll depth
-        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-        const depthPercent = docHeight > 0 ? (currentScrollTop / docHeight) * 100 : 0;
+        // Track max scroll depth — measured as the portion of the document the user has seen.
+        const depthPercent = computeScrollDepthPercent(
+          currentScrollTop,
+          window.innerHeight,
+          document.documentElement.scrollHeight,
+        );
         if (depthPercent > maxDepth.current) {
           maxDepth.current = depthPercent;
         }

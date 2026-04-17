@@ -10,6 +10,7 @@ import type { ConsoleEntry, LogLevel } from '../lib/consoleLogger';
 export interface HardwareData {
   gpu: string | null;
   gpuVendor: string | null;
+  gpuRaw: string | null;
   cpuCores: number | null;
   ram: number | null;
   battery: {
@@ -509,6 +510,7 @@ export const useProfileStore = create<ProfileState>((set) => ({
   hardware: {
     gpu: null,
     gpuVendor: null,
+    gpuRaw: null,
     cpuCores: null,
     ram: null,
     battery: null,

@@ -22,15 +22,15 @@ export function DataSection({
   return (
     <div className="mb-8">
       <motion.div
-        className={`rounded-xl bg-white/[0.02] border border-white/5 overflow-hidden ${className}`}
+        className={`rounded-xl bg-white/[0.02] border border-white/5 overflow-hidden relative group/section ${className}`}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay, ease: [0.4, 0, 0.2, 1] }}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <div className="data-section-header">
           <div className="flex items-center gap-2.5">
-            <span className="text-white/40">{icon}</span>
-            <h3 className="text-[11px] font-medium uppercase tracking-wider text-white/60">
+            <span className="text-cyber-cyan/60 group-hover/section:text-cyber-cyan/90 transition-colors">{icon}</span>
+            <h3 className="font-display text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">
               {title}
             </h3>
           </div>

@@ -1,41 +1,49 @@
 import { useEffect, useRef } from 'react';
 import { useProfileStore } from '../store/useProfileStore';
+import { computeSteadyStateWpm } from '../utils/typingMath';
 
-interface KeyEvent {
-  key: string;
+interface PendingKey {
+  /** Physical key identifier (stable across caps lock, modifiers) */
+  code: string;
   downTime: number;
-  upTime?: number;
 }
+
+const MIN_INTERVAL_MS = 1;          // reject obviously-bad timestamps
+const MAX_INTERVAL_MS = 2_000;      // pauses > 2s don't count as "typing"
+const MIN_HOLD_MS = 1;
+const MAX_HOLD_MS = 1_000;
 
 export function useTypingDynamics() {
   const { updateTyping, addConsoleEntry } = useProfileStore();
-  const keyEventsRef = useRef<KeyEvent[]>([]);
+  // Pending keydown events indexed by `e.code` (physical key), so repeated keys pair correctly
+  const pendingRef = useRef<Map<string, PendingKey>>(new Map());
   const holdTimesRef = useRef<number[]>([]);
   const interKeysRef = useRef<number[]>([]);
-  const lastKeyUpRef = useRef<number | null>(null);
+  const lastKeyDownRef = useRef<number | null>(null);
   const keystrokeCountRef = useRef(0);
   const hasLoggedRef = useRef(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore modifier keys and special keys
+      // Ignore modifier combos and special/function keys — focus on literal typing.
       if (e.ctrlKey || e.metaKey || e.altKey || e.key.length > 1) return;
 
       const now = Date.now();
       keystrokeCountRef.current++;
 
-      // Track inter-key interval
-      if (lastKeyUpRef.current !== null) {
-        const interval = now - lastKeyUpRef.current;
-        if (interval > 0 && interval < 2000) {
+      // Inter-key interval between consecutive keydowns (active typing rhythm)
+      if (lastKeyDownRef.current !== null) {
+        const interval = now - lastKeyDownRef.current;
+        if (interval >= MIN_INTERVAL_MS && interval <= MAX_INTERVAL_MS) {
           interKeysRef.current.push(interval);
         }
       }
+      lastKeyDownRef.current = now;
 
-      keyEventsRef.current.push({
-        key: e.key,
-        downTime: now,
-      });
+      // Store pending keydown — keyed by physical key so fast-repeated keys pair correctly.
+      // If the browser sends repeat keydowns without intervening keyup (key auto-repeat),
+      // we overwrite; we intentionally drop auto-repeat hold times since they'd be meaningless.
+      pendingRef.current.set(e.code, { code: e.code, downTime: now });
 
       updateTyping({
         totalKeystrokes: keystrokeCountRef.current,
@@ -52,52 +60,46 @@ export function useTypingDynamics() {
       if (e.key.length > 1) return;
 
       const now = Date.now();
-      lastKeyUpRef.current = now;
-
-      // Find the matching keydown event
-      const keyEvent = keyEventsRef.current.find(
-        (ke) => ke.key === e.key && !ke.upTime
-      );
-
-      if (keyEvent) {
-        keyEvent.upTime = now;
-        const holdTime = now - keyEvent.downTime;
-        if (holdTime > 0 && holdTime < 1000) {
+      const pending = pendingRef.current.get(e.code);
+      if (pending) {
+        const holdTime = now - pending.downTime;
+        if (holdTime >= MIN_HOLD_MS && holdTime <= MAX_HOLD_MS) {
           holdTimesRef.current.push(holdTime);
         }
+        pendingRef.current.delete(e.code);
       }
 
-      // Calculate metrics
       const avgHoldTime =
         holdTimesRef.current.length > 0
           ? holdTimesRef.current.reduce((a, b) => a + b, 0) / holdTimesRef.current.length
           : 0;
 
-      // Calculate WPM based on inter-key intervals
-      // Average word = 5 characters, so WPM = (characters / 5) / minutes
       const avgInterval =
         interKeysRef.current.length > 0
           ? interKeysRef.current.reduce((a, b) => a + b, 0) / interKeysRef.current.length
           : 0;
-      
-      // WPM = 60000 / (avgInterval * 5) where 5 is average characters per word
-      const wpm = avgInterval > 0 ? Math.round(60000 / (avgInterval * 5)) : 0;
+
+      const wpm = computeSteadyStateWpm(avgInterval);
 
       updateTyping({
-        averageWPM: Math.min(wpm, 200), // Cap at 200 WPM for sanity
+        averageWPM: wpm,
         averageHoldTime: Math.round(avgHoldTime),
         keyInterval: avgInterval > 0 ? Math.round(avgInterval) : null,
       });
 
-      // Clean up old events (keep last 100)
-      if (keyEventsRef.current.length > 100) {
-        keyEventsRef.current = keyEventsRef.current.slice(-50);
-      }
+      // Trim histories
       if (holdTimesRef.current.length > 100) {
         holdTimesRef.current = holdTimesRef.current.slice(-50);
       }
       if (interKeysRef.current.length > 100) {
         interKeysRef.current = interKeysRef.current.slice(-50);
+      }
+      // Pending map naturally stays small, but clear stale (>10s) entries occasionally
+      if (pendingRef.current.size > 20) {
+        const cutoff = now - 10_000;
+        for (const [code, key] of pendingRef.current) {
+          if (key.downTime < cutoff) pendingRef.current.delete(code);
+        }
       }
     };
 

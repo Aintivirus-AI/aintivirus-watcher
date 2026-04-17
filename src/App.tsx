@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome, Eye, MapPin, Wifi, Monitor, Radio, Crosshair } from 'lucide-react';
+import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome, Eye, MapPin, Wifi, Monitor, Radio, Crosshair, Fingerprint, Cpu, Lock } from 'lucide-react';
 import type { Visitor } from './hooks/useVisitors';
+import { computeThreatReport, type ThreatReport, type SignalCategory } from './lib/threatModel';
 
 // Hooks
 import { useHardwareDetection } from './hooks/useHardwareDetection';
@@ -113,33 +114,51 @@ import { useProfileStore } from './store/useProfileStore';
 function ParticleBackground() {
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-      {/* Gradient orbs - static, no animation needed */}
-      <div 
-        className="absolute w-[800px] h-[800px] rounded-full opacity-[0.03]"
+      {/* Deep vignette backdrop */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.04) 0%, transparent 45%), radial-gradient(ellipse at 50% 100%, rgba(191, 90, 242, 0.04) 0%, transparent 45%)',
+        }}
+      />
+
+      {/* Gradient orbs - softer, more atmospheric */}
+      <div
+        className="absolute w-[800px] h-[800px] rounded-full opacity-[0.04]"
         style={{
           background: 'radial-gradient(circle, #00f0ff 0%, transparent 70%)',
           top: '-20%',
           left: '-10%',
-          filter: 'blur(60px)',
+          filter: 'blur(80px)',
         }}
       />
-      <div 
-        className="absolute w-[600px] h-[600px] rounded-full opacity-[0.03]"
+      <div
+        className="absolute w-[600px] h-[600px] rounded-full opacity-[0.04]"
         style={{
           background: 'radial-gradient(circle, #bf5af2 0%, transparent 70%)',
           bottom: '-10%',
           right: '-5%',
-          filter: 'blur(60px)',
+          filter: 'blur(80px)',
         }}
       />
-      
-      {/* Grid */}
-      <div className="absolute inset-0 cyber-grid opacity-40" />
-      
+
+      {/* Grid - slightly more visible */}
+      <div className="absolute inset-0 cyber-grid opacity-60" />
+
       {/* Hexagon pattern */}
       <div className="absolute inset-0 hexagon-bg" />
-      
-      {/* Floating particles - CSS animation instead of Framer Motion (reduced to 6) */}
+
+      {/* Scan line overlay - desktop only, subtle */}
+      <div
+        className="absolute inset-0 hidden md:block"
+        style={{
+          backgroundImage:
+            'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0, 240, 255, 0.015) 3px, rgba(0, 240, 255, 0.015) 4px)',
+        }}
+      />
+
+      {/* Floating particles - CSS animation (reduced to 6) */}
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
@@ -190,15 +209,18 @@ function BatteryBadge() {
 
 function SectionTitle({ children, icon, badge }: { children: React.ReactNode; icon: React.ReactNode; badge?: React.ReactNode }) {
   return (
-    <motion.div 
+    <motion.div
       className="flex items-center gap-3 mb-5"
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <span className="text-white/40">{icon}</span>
-      <h2 className="text-[11px] font-medium uppercase tracking-wider text-white/50">{children}</h2>
-      <div className="flex-1 h-px bg-white/5" />
+      <span className="section-accent" aria-hidden="true" />
+      <span className="text-cyber-cyan/70">{icon}</span>
+      <h2 className="font-display text-[12px] font-semibold uppercase tracking-[0.22em] text-white/75">
+        {children}
+      </h2>
+      <span className="tick-rule" aria-hidden="true" />
       {badge && badge}
     </motion.div>
   );
@@ -206,7 +228,8 @@ function SectionTitle({ children, icon, badge }: { children: React.ReactNode; ic
 
 function SubsectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="text-white/30 text-[10px] uppercase tracking-widest mb-4 font-medium">
+    <h3 className="flex items-center gap-2 text-white/35 text-[10px] uppercase tracking-[0.28em] mb-4 font-mono">
+      <span className="w-1 h-1 rounded-full bg-cyber-cyan/60" />
       {children}
     </h3>
   );
@@ -561,147 +584,288 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
   );
 }
 
-function ExtensionBanner() {
+// Risk-level palette — each maps to a cohesive color scheme used throughout the banner.
+const RISK_STYLES = {
+  minimal:  { accent: '#10b981', label: 'Minimal exposure',   text: 'text-emerald-400', ring: 'stroke-emerald-400', bg: 'bg-emerald-500/5',  border: 'border-emerald-500/25' },
+  low:      { accent: '#22d3ee', label: 'Low visibility',     text: 'text-cyan-400',    ring: 'stroke-cyan-400',    bg: 'bg-cyan-500/5',     border: 'border-cyan-500/25' },
+  moderate: { accent: '#facc15', label: 'Moderate tracking',  text: 'text-amber-400',   ring: 'stroke-amber-400',   bg: 'bg-amber-500/5',    border: 'border-amber-500/25' },
+  high:     { accent: '#fb923c', label: 'High identifiability', text: 'text-orange-400',  ring: 'stroke-orange-400',  bg: 'bg-orange-500/5',   border: 'border-orange-500/25' },
+  extreme:  { accent: '#ff2d55', label: 'Near-unique profile', text: 'text-rose-400',    ring: 'stroke-rose-400',    bg: 'bg-rose-500/5',     border: 'border-rose-500/25' },
+} as const;
+
+const CATEGORY_META: Record<SignalCategory, { label: string; icon: React.ReactNode }> = {
+  fingerprint: { label: 'Fingerprint', icon: <Fingerprint size={10} /> },
+  network:     { label: 'Network',     icon: <Wifi size={10} /> },
+  device:      { label: 'Device',      icon: <Cpu size={10} /> },
+  privacy:     { label: 'Privacy',     icon: <Lock size={10} /> },
+};
+
+function formatCrowd(crowd: number | null): string {
+  if (crowd == null || crowd <= 0) return '—';
+  if (crowd < 1_000) return `1 in ${crowd.toLocaleString()}`;
+  if (crowd < 1_000_000) return `1 in ${Math.round(crowd / 100) * 100}`;
+  if (crowd < 1_000_000_000) return `1 in ${(crowd / 1_000_000).toFixed(1)}M`;
+  return `1 in ${(crowd / 1_000_000_000).toFixed(1)}B`;
+}
+
+function IdentifiabilityRing({ score, color }: { score: number; color: string }) {
+  const size = 62;
+  const radius = 26;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (score / 100) * circumference;
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg className="w-full h-full -rotate-90" viewBox={`0 0 ${size} ${size}`}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="rgba(255,255,255,0.06)"
+          strokeWidth={4}
+        />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={4}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 1.1, ease: [0.4, 0, 0.2, 1] }}
+          style={{ filter: `drop-shadow(0 0 6px ${color}66)` }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="font-display font-bold text-[15px] tabular-nums leading-none" style={{ color }}>
+          {score}
+        </span>
+        <span className="text-[7px] uppercase tracking-wider text-white/30 mt-0.5">score</span>
+      </div>
+    </div>
+  );
+}
+
+function CategoryBar({ category, bits, max, colorClass }: { category: SignalCategory; bits: number; max: number; colorClass: string }) {
+  const meta = CATEGORY_META[category];
+  const pct = max > 0 ? Math.min(100, (bits / max) * 100) : 0;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-white/35 flex items-center gap-1.5 w-[78px] shrink-0 text-[9px] uppercase tracking-wider font-mono">
+        {meta.icon}
+        {meta.label}
+      </span>
+      <div className="flex-1 h-[3px] rounded-full bg-white/[0.04] overflow-hidden">
+        <motion.div
+          className={`h-full rounded-full ${colorClass}`}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.9, ease: [0.4, 0, 0.2, 1] }}
+        />
+      </div>
+      <span className="text-white/40 text-[9px] font-mono tabular-nums w-[38px] text-right shrink-0">
+        {bits.toFixed(1)} b
+      </span>
+    </div>
+  );
+}
+
+function ThreatReportCard() {
   const [dismissed, setDismissed] = useState(false);
-  const [threatCount, setThreatCount] = useState(0);
-  const network = useProfileStore((s) => s.network);
+  const [expanded, setExpanded] = useState(false);
   const fingerprints = useProfileStore((s) => s.fingerprints);
-  const trackingDetection = useProfileStore((s) => s.trackingDetection);
+  const network = useProfileStore((s) => s.network);
+  const hardware = useProfileStore((s) => s.hardware);
+  const browser = useProfileStore((s) => s.browser);
+  const tracking = useProfileStore((s) => s.trackingDetection);
   const vpn = useProfileStore((s) => s.vpnDetection);
 
-  // Count real "threats" detected on this user
-  const exposedPoints = useMemo(() => {
-    const points: string[] = [];
-    if (network.ip) points.push('IP address exposed');
-    if (fingerprints.canvasHash) points.push('Canvas fingerprint captured');
-    if (fingerprints.webglHash) points.push('WebGL fingerprint captured');
-    if (fingerprints.audioHash) points.push('Audio fingerprint captured');
-    if (!trackingDetection.adBlocker) points.push('No ad blocker detected');
-    if (!trackingDetection.doNotTrack) points.push('Do Not Track disabled');
-    if (fingerprints.crossBrowserId) points.push('Cross-browser ID generated');
-    if (network.isp) points.push('ISP identified');
-    if (vpn.webrtcLeak) points.push('WebRTC leak detected');
-    if (fingerprints.fontsDetected > 0) points.push(`${fingerprints.fontsDetected} fonts enumerated`);
-    return points;
-  }, [network, fingerprints, trackingDetection, vpn]);
+  const report: ThreatReport = useMemo(
+    () => computeThreatReport({ fingerprints, network, hardware, browser, tracking, vpn }),
+    [fingerprints, network, hardware, browser, tracking, vpn],
+  );
 
-  // Animate the threat counter up
-  useEffect(() => {
-    if (exposedPoints.length === 0) return;
-    const target = exposedPoints.length;
-    let current = 0;
-    const interval = setInterval(() => {
-      current++;
-      setThreatCount(current);
-      if (current >= target) clearInterval(interval);
-    }, 150);
-    return () => clearInterval(interval);
-  }, [exposedPoints.length]);
+  const style = RISK_STYLES[report.riskLevel];
+  const topSignals = report.signals.slice(0, expanded ? report.signals.length : 3);
+  const maxCategoryBits = Math.max(1, ...Object.values(report.byCategory));
 
-  // Cycle through exposed points as a live ticker
-  const [tickerIndex, setTickerIndex] = useState(0);
-  useEffect(() => {
-    if (exposedPoints.length === 0) return;
-    const interval = setInterval(() => {
-      setTickerIndex((i) => (i + 1) % exposedPoints.length);
-    }, 2500);
-    return () => clearInterval(interval);
-  }, [exposedPoints.length]);
+  const ringFillColor = style === RISK_STYLES.minimal ? '#34d399'
+    : style === RISK_STYLES.low ? '#22d3ee'
+    : style === RISK_STYLES.moderate ? '#facc15'
+    : style === RISK_STYLES.high ? '#fb923c'
+    : '#fb7185';
 
   if (dismissed) return null;
 
   return (
     <motion.div
-      className="fixed bottom-4 right-4 z-50 w-[320px]"
-      initial={{ opacity: 0, y: 30, scale: 0.9 }}
+      className="fixed bottom-4 right-4 z-50 w-[340px] max-w-[calc(100vw-2rem)]"
+      initial={{ opacity: 0, y: 30, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ delay: 3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ delay: 2.5, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
     >
-      <div className="relative overflow-hidden bg-cyber-bg-card/95 backdrop-blur-xl border border-cyber-red/30 rounded-2xl shadow-2xl shadow-cyber-red/10">
-        {/* Animated top border glow */}
-        <div className="absolute top-0 left-0 right-0 h-[1px]">
+      <div className={`relative overflow-hidden bg-cyber-bg-card/95 backdrop-blur-xl border ${style.border} rounded-2xl shadow-2xl`} style={{ boxShadow: `0 20px 40px rgba(0,0,0,0.5), 0 0 30px ${style.accent}15` }}>
+        {/* HUD corner brackets */}
+        <span className="hud-corner hud-corner-tl" aria-hidden="true" style={{ borderColor: `${style.accent}aa` }} />
+        <span className="hud-corner hud-corner-tr" aria-hidden="true" style={{ borderColor: `${style.accent}aa` }} />
+        <span className="hud-corner hud-corner-bl" aria-hidden="true" style={{ borderColor: `${style.accent}aa` }} />
+        <span className="hud-corner hud-corner-br" aria-hidden="true" style={{ borderColor: `${style.accent}aa` }} />
+
+        {/* Animated top scan line */}
+        <div className="absolute top-0 left-0 right-0 h-px overflow-hidden">
           <motion.div
-            className="h-full bg-gradient-to-r from-transparent via-cyber-red to-transparent"
+            className="h-full"
+            style={{ background: `linear-gradient(90deg, transparent, ${style.accent}, transparent)` }}
             animate={{ x: ['-100%', '100%'] }}
-            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: 'linear' }}
           />
         </div>
 
-        {/* Scanline effect */}
-        <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,45,85,0.15) 2px, rgba(255,45,85,0.15) 4px)',
-        }} />
-
-        {/* Close button */}
+        {/* Close */}
         <button
           onClick={() => setDismissed(true)}
-          className="absolute top-3 right-3 z-10 text-white/20 hover:text-white/50 transition-colors"
-          aria-label="Dismiss"
+          className="absolute top-3 right-3 z-10 text-white/25 hover:text-white/60 transition-colors p-1 rounded-md hover:bg-white/5"
+          aria-label="Dismiss threat report"
         >
-          <X size={14} />
+          <X size={13} />
         </button>
 
-        {/* Alert header */}
+        {/* Header */}
         <div className="px-5 pt-4 pb-3">
-          <div className="flex items-center gap-2 mb-1">
-            <motion.div
-              className="w-2 h-2 rounded-full bg-cyber-red"
-              animate={{ opacity: [1, 0.3, 1] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
+          <div className="flex items-center gap-2 mb-3">
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ background: style.accent }}
+              animate={{ opacity: [1, 0.35, 1] }}
+              transition={{ duration: 1.8, repeat: Infinity }}
             />
-            <span className="text-cyber-red text-[9px] font-mono uppercase tracking-[0.25em] font-bold">
+            <span className={`${style.text} text-[9px] font-mono uppercase tracking-[0.22em] font-semibold`}>
               Threat Report
             </span>
           </div>
 
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-3xl font-display font-bold text-cyber-red tabular-nums">
-              {threatCount}
-            </span>
-            <span className="text-white/40 text-[11px] font-display">
-              vulnerabilities detected on your browser
-            </span>
+          <div className="flex items-center gap-4">
+            <IdentifiabilityRing score={report.identifiabilityScore} color={ringFillColor} />
+            <div className="flex-1 min-w-0">
+              <div className={`${style.text} text-[11px] font-display font-semibold uppercase tracking-wider leading-tight`}>
+                {style.label}
+              </div>
+              <div className="text-white/55 text-[10px] font-mono mt-1 leading-snug">
+                {report.entropyBits.toFixed(1)} bits of entropy leaked
+              </div>
+              <div className="text-white/35 text-[9px] font-mono mt-0.5 truncate">
+                ≈ {formatCrowd(report.crowdSize)} browsers
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Live threat ticker */}
-        <div className="px-5 py-2.5 bg-cyber-red/5 border-y border-cyber-red/10">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={tickerIndex}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.3 }}
-              className="flex items-center gap-2"
-            >
-              <Shield size={10} className="text-cyber-red/60 shrink-0" />
-              <span className="text-white/50 text-[10px] font-mono truncate">
-                {exposedPoints[tickerIndex] || 'Scanning...'}
-              </span>
+        {/* Category breakdown */}
+        <div className={`px-5 py-3 ${style.bg} border-y ${style.border}`}>
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <span className="text-white/30 text-[8px] uppercase tracking-widest font-mono">Signal Mix</span>
+            <span className="flex-1 h-px bg-white/5" />
+          </div>
+          <div className="space-y-1.5">
+            {(Object.keys(CATEGORY_META) as SignalCategory[]).map((cat) => (
+              <CategoryBar
+                key={cat}
+                category={cat}
+                bits={report.byCategory[cat]}
+                max={maxCategoryBits}
+                colorClass={
+                  cat === 'fingerprint' ? 'bg-gradient-to-r from-rose-500/70 to-rose-400'
+                  : cat === 'network' ? 'bg-gradient-to-r from-orange-500/70 to-orange-400'
+                  : cat === 'device' ? 'bg-gradient-to-r from-amber-500/70 to-amber-400'
+                  : 'bg-gradient-to-r from-cyan-500/70 to-cyan-400'
+                }
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Top signals */}
+        <div className="px-5 pt-3 pb-1">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-white/30 text-[8px] uppercase tracking-widest font-mono">
+              {expanded ? 'All Signals' : 'Top Signals'}
+            </span>
+            {report.signals.length > 3 && (
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className="text-white/40 hover:text-white/70 text-[9px] font-mono uppercase tracking-wider transition-colors"
+              >
+                {expanded ? 'Collapse' : `+${report.signals.length - 3} more`}
+              </button>
+            )}
+          </div>
+          <AnimatePresence initial={false}>
+            <motion.div layout className="space-y-1">
+              {topSignals.map((signal) => (
+                <motion.div
+                  key={signal.id}
+                  layout
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -6 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex items-center gap-2 py-1"
+                >
+                  <span
+                    className="w-1 h-1 rounded-full shrink-0"
+                    style={{
+                      background:
+                        signal.severity === 'critical' ? '#fb7185'
+                        : signal.severity === 'high' ? '#fb923c'
+                        : signal.severity === 'medium' ? '#facc15'
+                        : '#64748b',
+                    }}
+                  />
+                  <span className="text-white/60 text-[10px] flex-1 truncate">
+                    {signal.label}
+                  </span>
+                  <span className="text-white/30 text-[9px] font-mono tabular-nums shrink-0">
+                    {signal.bits > 0 ? `${signal.bits.toFixed(1)}b` : '—'}
+                  </span>
+                </motion.div>
+              ))}
             </motion.div>
           </AnimatePresence>
         </div>
 
         {/* CTA */}
         <div className="px-5 pt-3 pb-4">
-          <p className="text-white/30 text-[10px] font-mono mb-3 leading-relaxed">
-            The AIntivirus extension blocks fingerprinting, spoofs your identity, and keeps trackers blind.
+          <p className="text-white/35 text-[10px] font-mono mb-3 leading-relaxed">
+            AIntivirus spoofs canvas + WebGL, randomizes fonts, and masks your WebRTC IP.
           </p>
           <a
             href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex items-center justify-center gap-2.5 w-full py-2.5 rounded-xl bg-cyber-red/10 border border-cyber-red/30 hover:bg-cyber-red/20 hover:border-cyber-red/50 hover:shadow-lg hover:shadow-cyber-red/10 transition-all text-cyber-red text-[11px] font-display font-bold uppercase tracking-[0.15em]"
+            className="group flex items-center justify-center gap-2.5 w-full py-2.5 rounded-xl transition-all text-[11px] font-display font-bold uppercase tracking-[0.15em]"
+            style={{
+              background: `${style.accent}1a`,
+              border: `1px solid ${style.accent}55`,
+              color: style.accent,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = `${style.accent}2a`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = `${style.accent}1a`; }}
           >
             <ShieldCheck size={14} className="group-hover:scale-110 transition-transform" />
-            Protect Now — Add to Chrome
+            Shield Me — Add to Chrome
           </a>
         </div>
       </div>
     </motion.div>
   );
 }
+
+// Keep old name as alias so existing JSX continues to work
+const ExtensionBanner = ThreatReportCard;
 
 function App() {
   // Initialize all tracking hooks
@@ -770,6 +934,15 @@ function App() {
 
             {/* Center Pane: Globe */}
             <div className="xl:col-span-6 h-[55vh] md:h-[50vh] xl:h-[calc(100vh-120px)] bg-gradient-to-b from-cyber-bg-light/5 to-transparent relative overflow-hidden">
+              {/* HUD corner brackets */}
+              <span className="hud-corner hud-corner-tl hud-corner-lg" aria-hidden="true" />
+              <span className="hud-corner hud-corner-tr hud-corner-lg" aria-hidden="true" />
+              <span className="hud-corner hud-corner-bl hud-corner-lg" aria-hidden="true" />
+              <span className="hud-corner hud-corner-br hud-corner-lg" aria-hidden="true" />
+
+              {/* Soft vignette behind globe */}
+              <div className="globe-vignette" aria-hidden="true" />
+
               {/* Status badges */}
               <div className="absolute top-3 left-3 md:left-4 z-20 flex flex-col items-start gap-2">
                 <motion.div 

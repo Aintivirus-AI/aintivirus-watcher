@@ -67,11 +67,11 @@ export function CardHeader({
     <div className={`flex items-center justify-between mb-4 ${className}`}>
       <div className="flex items-center gap-2.5">
         {icon && (
-          <span className="text-cyber-cyan p-1.5 rounded-lg bg-cyber-cyan/10">
+          <span className="text-cyber-cyan p-1.5 rounded-lg bg-cyber-cyan/10 border border-cyber-cyan/15">
             {icon}
           </span>
         )}
-        <h3 className="font-display text-xs font-semibold uppercase tracking-[0.15em] text-cyber-cyan">
+        <h3 className="font-display text-xs font-semibold uppercase tracking-[0.18em] text-cyber-cyan">
           {children}
         </h3>
       </div>

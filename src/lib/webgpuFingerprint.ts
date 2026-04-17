@@ -327,6 +327,12 @@ function generateFingerprintHash(
 /**
  * Get complete WebGPU fingerprint
  */
+// Sentinels for non-success outcomes — pass through the same hash function so the
+// UI sees a consistently-shaped hex hash rather than a bare literal, while the
+// underlying string still signals *why* fingerprinting could not proceed.
+const UNAVAILABLE_HASH = simpleHash('webgpu-unavailable');
+const ERROR_HASH = simpleHash('webgpu-error');
+
 export async function getWebGPUFingerprint(): Promise<WebGPUFingerprint> {
   if (!isWebGPUAvailable()) {
     return {
@@ -336,7 +342,7 @@ export async function getWebGPUFingerprint(): Promise<WebGPUFingerprint> {
       limits: null,
       preferredCanvasFormat: null,
       computeTimingFingerprint: null,
-      fingerprintHash: 'webgpu-unavailable',
+      fingerprintHash: UNAVAILABLE_HASH,
     };
   }
 
@@ -380,7 +386,7 @@ export async function getWebGPUFingerprint(): Promise<WebGPUFingerprint> {
       limits: null,
       preferredCanvasFormat: null,
       computeTimingFingerprint: null,
-      fingerprintHash: 'webgpu-error',
+      fingerprintHash: ERROR_HASH,
     };
   }
 }
