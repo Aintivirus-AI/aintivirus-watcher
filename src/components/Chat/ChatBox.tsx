@@ -7,6 +7,8 @@ interface ChatBoxProps {
   messages: ChatMessage[];
   onSend: (text: string) => void;
   isConnected: boolean;
+  /** >0 while the server is throttling this connection's chat. */
+  cooldownMs?: number;
 }
 
 function formatTime(ts: number): string {
@@ -14,11 +16,30 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function ChatBox({ messages, onSend, isConnected }: ChatBoxProps) {
+export function ChatBox({ messages, onSend, isConnected, cooldownMs = 0 }: ChatBoxProps) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [cooldownLeft, setCooldownLeft] = useState(0);
+
+  // Count the throttle down locally; the server only tells us the total.
+  useEffect(() => {
+    if (cooldownMs <= 0) {
+      setCooldownLeft(0);
+      return;
+    }
+    setCooldownLeft(cooldownMs);
+    const started = Date.now();
+    const id = setInterval(() => {
+      const left = cooldownMs - (Date.now() - started);
+      setCooldownLeft(left > 0 ? left : 0);
+      if (left <= 0) clearInterval(id);
+    }, 100);
+    return () => clearInterval(id);
+  }, [cooldownMs]);
+
+  const throttled = cooldownLeft > 0;
 
   useEffect(() => {
     if (listRef.current) {
@@ -34,7 +55,7 @@ export function ChatBox({ messages, onSend, isConnected }: ChatBoxProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || throttled) return;
     onSend(input);
     setInput('');
   };
@@ -124,14 +145,20 @@ export function ChatBox({ messages, onSend, isConnected }: ChatBoxProps) {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={isConnected ? 'Say something...' : 'Disconnected'}
-                  disabled={!isConnected}
+                  placeholder={
+                    !isConnected
+                      ? 'Disconnected'
+                      : throttled
+                        ? `Slow down — ${Math.ceil(cooldownLeft / 1000)}s`
+                        : 'Say something...'
+                  }
+                  disabled={!isConnected || throttled}
                   maxLength={500}
                   className="flex-1 bg-transparent text-white/80 text-[12px] placeholder:text-white/20 outline-none disabled:opacity-40"
                 />
                 <button
                   type="submit"
-                  disabled={!isConnected || !input.trim()}
+                  disabled={!isConnected || !input.trim() || throttled}
                   className="text-cyber-cyan/50 hover:text-cyber-cyan transition-colors disabled:opacity-20 disabled:cursor-not-allowed p-1"
                 >
                   <Send size={15} />

@@ -30,7 +30,7 @@ export interface ChatMessage {
 }
 
 interface WSMessage {
-  type: 'welcome' | 'visitor_joined' | 'visitor_left' | 'visitors_list' | 'chat_message' | 'chat_history';
+  type: 'welcome' | 'visitor_joined' | 'visitor_left' | 'visitors_list' | 'chat_message' | 'chat_history' | 'chat_rate_limited';
   payload: unknown;
 }
 
@@ -51,6 +51,33 @@ interface UseVisitorsReturn {
   reconnect: () => void;
   chatMessages: ChatMessage[];
   sendChatMessage: (text: string) => void;
+  /** Set while the server is throttling this connection's chat. */
+  chatCooldownMs: number;
+}
+
+export function isRateLimitPayload(p: unknown): p is { retryAfterMs: number } {
+  return (
+    typeof p === 'object' && p !== null && 'retryAfterMs' in p &&
+    typeof (p as { retryAfterMs: number }).retryAfterMs === 'number'
+  );
+}
+
+/**
+ * Backoff with full jitter.
+ *
+ * Without jitter every client reconnects on the same schedule, so a server
+ * restart brings the whole room back in synchronised waves. Randomising inside
+ * the window spreads them out. The delay is capped so a long outage doesn't
+ * push retries hours apart.
+ */
+export function reconnectDelay(
+  attempt: number,
+  baseMs = RECONNECT_DELAY,
+  maxMs = MAX_RECONNECT_DELAY,
+  random: () => number = Math.random,
+): number {
+  const exponential = Math.min(baseMs * Math.pow(2, attempt), maxMs);
+  return Math.round(exponential / 2 + random() * (exponential / 2));
 }
 
 // Runtime type guards for WebSocket payload shapes
@@ -106,8 +133,11 @@ const getWebSocketUrl = () => {
 };
 
 const WS_URL = getWebSocketUrl();
-const RECONNECT_DELAY = 3000;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 1000;
+// Cap the backoff instead of giving up. The old code stopped after 5 attempts
+// (~93s) and showed "please refresh the page" forever, so a laptop asleep for
+// two minutes required a manual reload to reconnect.
+const MAX_RECONNECT_DELAY = 30_000;
 
 export function useVisitors(): UseVisitorsReturn {
   const [visitors, setVisitors] = useState<Visitor[]>([]);
@@ -115,142 +145,214 @@ export function useVisitors(): UseVisitorsReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatCooldownMs, setChatCooldownMs] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cooldownTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set on unmount so a late close event can't schedule a reconnect for a
+  // component that no longer exists.
+  const disposed = useRef(false);
 
   const connect = useCallback(() => {
-    // Clean up existing connection
-    if (wsRef.current) {
-      wsRef.current.close();
+    if (disposed.current) return;
+
+    if (reconnectTimeout.current) {
+      clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
     }
 
+    // Detach handlers before closing the previous socket. Without this, the
+    // old socket's `onclose` fired *after* wsRef pointed at the new socket and
+    // set wsRef.current = null — killing the live connection's send path and
+    // scheduling a duplicate reconnect.
+    const previous = wsRef.current;
+    if (previous) {
+      previous.onopen = null;
+      previous.onmessage = null;
+      previous.onclose = null;
+      previous.onerror = null;
+      try { previous.close(); } catch { /* already closing */ }
+      wsRef.current = null;
+    }
+
+    let ws: WebSocket;
     try {
-      console.log(`[Visitors] Connecting to ${WS_URL}...`);
-      const ws = new WebSocket(WS_URL);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('[Visitors] Connected');
-        setIsConnected(true);
-        setError(null);
-        reconnectAttempts.current = 0;
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message: WSMessage = JSON.parse(event.data);
-          
-          switch (message.type) {
-            case 'welcome': {
-              if (!isWelcomePayload(message.payload)) break;
-              const payload = message.payload;
-              setCurrentVisitor(payload.visitor);
-              setVisitors(payload.visitors);
-              console.log(`[Visitors] Welcome! You are ${payload.visitor.id}. ${payload.visitors.length} visitors online.`);
-              break;
-            }
-
-            case 'visitor_joined': {
-              if (!isVisitorEventPayload(message.payload)) break;
-              const payload = message.payload;
-              setVisitors((prev) => {
-                // Avoid duplicates
-                if (prev.find((v) => v.id === payload.visitor.id)) {
-                  return prev;
-                }
-                return [...prev, payload.visitor];
-              });
-              console.log(`[Visitors] ${payload.visitor.id} joined from ${payload.visitor.geo?.city || 'Unknown'}`);
-              break;
-            }
-
-            case 'visitor_left': {
-              if (!isVisitorEventPayload(message.payload)) break;
-              const payload = message.payload;
-              setVisitors((prev) => prev.filter((v) => v.id !== payload.visitor.id));
-              console.log(`[Visitors] ${payload.visitor.id} left`);
-              break;
-            }
-
-            case 'visitors_list': {
-              if (!isVisitorsListPayload(message.payload)) break;
-              setVisitors(message.payload.visitors);
-              break;
-            }
-
-            case 'chat_history': {
-              if (!isChatHistoryPayload(message.payload)) break;
-              setChatMessages(message.payload.messages);
-              break;
-            }
-
-            case 'chat_message': {
-              if (!isChatMessagePayload(message.payload)) break;
-              setChatMessages((prev) => [...prev, message.payload as ChatMessage]);
-              break;
-            }
-          }
-        } catch (err) {
-          console.error('[Visitors] Failed to parse message:', err);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log('[Visitors] Disconnected');
-        setIsConnected(false);
-        wsRef.current = null;
-
-        // Auto-reconnect with exponential backoff
-        if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
-          const delay = RECONNECT_DELAY * Math.pow(2, reconnectAttempts.current);
-          reconnectAttempts.current++;
-          console.log(`[Visitors] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
-          
-          reconnectTimeout.current = setTimeout(() => {
-            connect();
-          }, delay);
-        } else {
-          setError('Connection lost. Please refresh the page.');
-        }
-      };
-
-      ws.onerror = (event) => {
-        console.error('[Visitors] WebSocket error:', event);
-        setError('Connection error');
-      };
+      ws = new WebSocket(WS_URL);
     } catch (err) {
       console.error('[Visitors] Failed to connect:', err);
       setError('Failed to connect to server');
+      scheduleReconnect();
+      return;
     }
+
+    wsRef.current = ws;
+
+    // Every handler below checks it is still the current socket, so a stale
+    // connection can never mutate state belonging to a newer one.
+    const isCurrent = () => wsRef.current === ws;
+
+    ws.onopen = () => {
+      if (!isCurrent()) return;
+      setIsConnected(true);
+      setError(null);
+      reconnectAttempts.current = 0;
+    };
+
+    ws.onmessage = (event) => {
+      if (!isCurrent()) return;
+      try {
+        const message: WSMessage = JSON.parse(event.data);
+
+        switch (message.type) {
+          case 'welcome': {
+            if (!isWelcomePayload(message.payload)) break;
+            const payload = message.payload;
+            setCurrentVisitor(payload.visitor);
+            setVisitors(payload.visitors);
+            break;
+          }
+
+          case 'visitor_joined': {
+            if (!isVisitorEventPayload(message.payload)) break;
+            const payload = message.payload;
+            setVisitors((prev) =>
+              prev.some((v) => v.id === payload.visitor.id) ? prev : [...prev, payload.visitor]);
+            break;
+          }
+
+          case 'visitor_left': {
+            if (!isVisitorEventPayload(message.payload)) break;
+            const payload = message.payload;
+            setVisitors((prev) => prev.filter((v) => v.id !== payload.visitor.id));
+            break;
+          }
+
+          case 'visitors_list': {
+            if (!isVisitorsListPayload(message.payload)) break;
+            setVisitors(message.payload.visitors);
+            break;
+          }
+
+          case 'chat_history': {
+            if (!isChatHistoryPayload(message.payload)) break;
+            setChatMessages(message.payload.messages);
+            break;
+          }
+
+          case 'chat_message': {
+            if (!isChatMessagePayload(message.payload)) break;
+            setChatMessages((prev) => [...prev, message.payload as ChatMessage]);
+            break;
+          }
+
+          case 'chat_rate_limited': {
+            if (!isRateLimitPayload(message.payload)) break;
+            const { retryAfterMs } = message.payload;
+            setChatCooldownMs(retryAfterMs);
+            if (cooldownTimeout.current) clearTimeout(cooldownTimeout.current);
+            cooldownTimeout.current = setTimeout(() => setChatCooldownMs(0), retryAfterMs);
+            break;
+          }
+        }
+      } catch (err) {
+        console.error('[Visitors] Failed to parse message:', err);
+      }
+    };
+
+    ws.onclose = () => {
+      if (!isCurrent()) return;
+      wsRef.current = null;
+      setIsConnected(false);
+      scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      if (!isCurrent()) return;
+      // `onclose` always follows, which is where reconnection is handled.
+      setError('Connection error');
+    };
+    // scheduleReconnect is stable (defined via ref below) so this stays valid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Kept in a ref so `connect` and the event listeners share one implementation
+  // without re-creating the callback chain on every render.
+  const connectRef = useRef(connect);
+  connectRef.current = connect;
+
+  function scheduleReconnect(): void {
+    if (disposed.current || reconnectTimeout.current) return;
+
+    const delay = reconnectDelay(reconnectAttempts.current);
+    reconnectAttempts.current++;
+
+    // Retry indefinitely with a capped, jittered delay rather than giving up.
+    // Surface a message only once it's been failing long enough to matter.
+    if (reconnectAttempts.current >= 4) {
+      setError('Reconnecting…');
+    }
+
+    reconnectTimeout.current = setTimeout(() => {
+      reconnectTimeout.current = null;
+      connectRef.current();
+    }, delay);
+  }
 
   const reconnect = useCallback(() => {
     reconnectAttempts.current = 0;
     setError(null);
-    connect();
-  }, [connect]);
+    connectRef.current();
+  }, []);
 
   const sendChatMessage = useCallback((text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ type: 'chat_message', payload: { text: trimmed } }));
+    if (!trimmed) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'chat_message', payload: { text: trimmed.slice(0, 500) } }));
   }, []);
 
-  // Connect on mount
   useEffect(() => {
-    connect();
+    disposed.current = false;
+    connectRef.current();
 
-    return () => {
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
+    // Reconnect promptly on the events that actually indicate recovery, rather
+    // than waiting out a backoff the user is sitting through.
+    const onOnline = () => {
+      reconnectAttempts.current = 0;
+      connectRef.current();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && wsRef.current === null) {
+        reconnectAttempts.current = 0;
+        connectRef.current();
       }
     };
-  }, [connect]);
+
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      disposed.current = true;
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+
+      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+      if (cooldownTimeout.current) clearTimeout(cooldownTimeout.current);
+
+      const ws = wsRef.current;
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        try { ws.close(); } catch { /* already closing */ }
+        wsRef.current = null;
+      }
+    };
+  }, []);
 
   return {
     visitors,
@@ -260,5 +362,6 @@ export function useVisitors(): UseVisitorsReturn {
     reconnect,
     chatMessages,
     sendChatMessage,
+    chatCooldownMs,
   };
 }

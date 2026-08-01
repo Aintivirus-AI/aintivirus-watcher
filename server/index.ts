@@ -13,6 +13,10 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { getGeolocation, type GeoLocation } from './geolocation.js';
+import { sanitizeChatText } from './sanitize.js';
+import { RateLimiter } from './rate-limit.js';
+import { HistoryStore } from './history-store.js';
+import { computeVisitorStats, recentVisitors, visitorsSince, parseLimit } from './stats.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,35 +61,39 @@ const wss = new WebSocketServer({ server });
 // Maximum concurrent WebSocket connections to prevent DoS
 const MAX_CONNECTIONS = 5000;
 
-// HTML entity encoder for chat messages to prevent XSS if clients render as HTML
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
-}
+// Chat text is sanitised (control chars, bidi overrides, invisibles) but NOT
+// HTML-escaped: it travels as JSON and the React client escapes text nodes on
+// render. Escaping here too turned every apostrophe into `&#x27;` on screen.
+// See server/sanitize.ts.
 
-// Simple sliding-window rate limiter for /api/analyze (10 req/min per IP)
-const analyzeRateMap = new Map<string, { count: number; resetAt: number }>();
-function analyzeRateLimiter(req: express.Request, res: express.Response, next: express.NextFunction): void {
-  const ip = getClientIp(req);
-  const now = Date.now();
-  const WINDOW_MS = 60_000;
-  const LIMIT = 10;
-  const entry = analyzeRateMap.get(ip);
-  if (!entry || now >= entry.resetAt) {
-    analyzeRateMap.set(ip, { count: 1, resetAt: now + WINDOW_MS });
-    return next();
-  }
-  if (entry.count >= LIMIT) {
-    res.status(429).json({ error: 'Too many requests' });
-    return;
-  }
-  entry.count++;
-  next();
+// Shared sliding-window limiters. The chat one matters most: every accepted
+// message is broadcast to every client, so an unlimited sender amplifies
+// against the whole room.
+const analyzeLimiter = new RateLimiter(10, 60_000);
+const historyLimiter = new RateLimiter(60, 60_000);
+const chatLimiter = new RateLimiter(5, 10_000);
+
+function makeHttpLimiter(limiter: RateLimiter) {
+  return function limit(req: express.Request, res: express.Response, next: express.NextFunction): void {
+    const result = limiter.check(getClientIp(req));
+    if (!result.allowed) {
+      res.setHeader('Retry-After', Math.ceil(result.retryAfterMs / 1000));
+      res.status(429).json({ error: 'Too many requests' });
+      return;
+    }
+    next();
+  };
 }
+const analyzeRateLimiter = makeHttpLimiter(analyzeLimiter);
+const historyRateLimiter = makeHttpLimiter(historyLimiter);
+
+// Buckets are keyed by IP/connection and would otherwise accumulate forever.
+const limiterSweep = setInterval(() => {
+  analyzeLimiter.sweep();
+  historyLimiter.sweep();
+  chatLimiter.sweep();
+}, 5 * 60_000);
+limiterSweep.unref?.();
 
 // Types (GeoLocation imported from geolocation.ts)
 
@@ -97,7 +105,7 @@ interface Visitor {
 }
 
 interface WSMessage {
-  type: 'welcome' | 'visitor_joined' | 'visitor_left' | 'visitors_list' | 'chat_message' | 'chat_history';
+  type: 'welcome' | 'visitor_joined' | 'visitor_left' | 'visitors_list' | 'chat_message' | 'chat_history' | 'chat_rate_limited';
   payload: unknown;
 }
 
@@ -123,12 +131,12 @@ const wsAlive = new Map<WebSocket, boolean>();
 const MAX_CHAT_MESSAGES = 50;
 const chatMessages: ChatMessage[] = [];
 
-// Visitor history: in-memory primary store with optional file persistence
+// Visitor history — persistence is debounced + atomic (see history-store.ts).
+// This used to do a synchronous full-array JSON write inside the connection
+// handler, i.e. up to a megabyte re-serialised and fsynced on the event loop
+// for every single visitor that connected.
 const MAX_HISTORY_ENTRIES = 10000;
-const visitorHistory: HistoricalVisitor[] = [];
-let historyFileWritable = true;
 
-// Try multiple paths for the history file (compiled vs source)
 const HISTORY_CANDIDATES = [
   path.join(__dirname, 'data', 'visitors-history.json'),
   path.join(__dirname, '..', 'data', 'visitors-history.json'),
@@ -137,54 +145,12 @@ const HISTORY_FILE = HISTORY_CANDIDATES.find((p) => {
   try { return fs.existsSync(path.dirname(p)); } catch { return false; }
 }) ?? HISTORY_CANDIDATES[0];
 
-// Load persisted history into memory on startup
-const MAX_HISTORY_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
-try {
-  if (fs.existsSync(HISTORY_FILE)) {
-    const stat = fs.statSync(HISTORY_FILE);
-    if (stat.size > MAX_HISTORY_FILE_BYTES) {
-      console.warn('[History] History file exceeds size limit, starting with empty history');
-    } else {
-      const data = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
-      if (Array.isArray(data)) visitorHistory.push(...data);
-      console.log(`[History] Loaded ${visitorHistory.length} entries from disk`);
-    }
-  }
-} catch {
-  console.warn('[History] Could not read history file, starting with empty history');
-}
-
-// Retention policy: 30 days
-const HISTORY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-
-function appendVisitorHistory(entry: HistoricalVisitor): void {
-  // Evict entries older than 30 days
-  const cutoff = Date.now() - HISTORY_RETENTION_MS;
-  let stale = 0;
-  while (stale < visitorHistory.length && visitorHistory[stale].connectedAt < cutoff) {
-    stale++;
-  }
-  if (stale > 0) visitorHistory.splice(0, stale);
-
-  if (visitorHistory.length >= MAX_HISTORY_ENTRIES) {
-    visitorHistory.shift();
-  }
-  visitorHistory.push(entry);
-
-  if (!historyFileWritable) return;
-  try {
-    const dir = path.dirname(HISTORY_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(visitorHistory));
-    // Restrict file to owner read/write only (prevents world-readable PII)
-    try { fs.chmodSync(HISTORY_FILE, 0o600); } catch { /* ignore on platforms that don't support it */ }
-  } catch {
-    historyFileWritable = false;
-    console.warn('[History] Filesystem not writable; history will be in-memory only');
-  }
-}
+const historyStore = new HistoryStore({
+  file: HISTORY_FILE,
+  maxEntries: MAX_HISTORY_ENTRIES,
+  retentionMs: 30 * 24 * 60 * 60 * 1000,
+});
+console.log(`[History] Loaded ${historyStore.load()} entries from disk`);
 
 // Heartbeat interval to detect dead connections
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -212,12 +178,24 @@ function getClientIp(req: RequestLike): string {
   return req.socket?.remoteAddress || '127.0.0.1';
 }
 
+/**
+ * Constant-time string comparison.
+ *
+ * Comparing lengths first (as this did) short-circuits before the timing-safe
+ * compare and leaks the secret's length. Hashing both sides to a fixed 32
+ * bytes makes the comparison genuinely constant-time for any input.
+ */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const ha = crypto.createHash('sha256').update(a, 'utf8').digest();
+  const hb = crypto.createHash('sha256').update(b, 'utf8').digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
 // Middleware: require x-api-key header matching API_SECRET env var
 function requireApiKey(req: express.Request, res: express.Response, next: express.NextFunction): void {
   const secret = process.env.API_SECRET;
   const provided = req.headers['x-api-key'];
-  if (!secret || typeof provided !== 'string' || provided.length !== secret.length ||
-      !crypto.timingSafeEqual(Buffer.from(provided, 'utf8'), Buffer.from(secret, 'utf8'))) {
+  if (!secret || typeof provided !== 'string' || !timingSafeStringEqual(provided, secret)) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
@@ -249,6 +227,7 @@ function cleanupVisitor(ws: WebSocket, reason: string = 'disconnected'): void {
     visitors.delete(id);
     wsToId.delete(ws);
     wsAlive.delete(ws);
+    chatLimiter.forget(id);
 
     if (visitor) {
       broadcast({
@@ -302,9 +281,9 @@ wss.on('connection', async (ws, req) => {
   visitors.set(visitorId, visitor);
   wsToId.set(ws, visitorId);
 
-  // Persist to history file
+  // Persist to history (async, debounced)
   if (geo) {
-    appendVisitorHistory({
+    historyStore.append({
       lat: geo.lat,
       lng: geo.lng,
       city: geo.city || 'Unknown',
@@ -351,7 +330,17 @@ wss.on('connection', async (ws, req) => {
       }
       const msg = JSON.parse(raw.toString());
       if (msg.type === 'chat_message' && typeof msg.payload?.text === 'string') {
-        const text = escapeHtml(msg.payload.text.trim().slice(0, 500));
+        // Rate limit per connection BEFORE doing any broadcast work — an
+        // accepted message fans out to every connected client.
+        const verdict = chatLimiter.check(visitorId);
+        if (!verdict.allowed) {
+          send(ws, {
+            type: 'chat_rate_limited',
+            payload: { retryAfterMs: verdict.retryAfterMs },
+          });
+          return;
+        }
+        const text = sanitizeChatText(msg.payload.text);
         if (!text) return;
         const chatMsg: ChatMessage = { text, timestamp: Date.now() };
         chatMessages.push(chatMsg);
@@ -404,21 +393,56 @@ wss.on('close', () => {
   clearInterval(heartbeatInterval);
 });
 
-// Health check endpoint
-app.get('/health', requireApiKey, (_req, res) => {
-  res.json({ status: 'ok' });
+// Liveness probe. Deliberately unauthenticated: this is what uptime monitors,
+// the load balancer and railway.json's healthcheckPath hit. Requiring an API
+// key here meant every probe got a 401 and the service always looked down.
+// It exposes no visitor data — only whether the process is serving.
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    uptimeSeconds: Math.round(process.uptime()),
+    connections: visitors.size,
+    historyEntries: historyStore.size,
+    historyPersisted: historyStore.isWritable,
+    timestamp: Date.now(),
+  });
 });
 
-// Get current visitors (REST fallback)
+// Get current visitors (REST fallback) — still authenticated, this is PII.
 app.get('/visitors', requireApiKey, (_req, res) => {
   res.json({
     visitors: Array.from(visitors.values()),
   });
 });
 
-// Get all-time visitor history (public endpoint — consumed by client-side map)
-app.get('/api/visitors/history', (_req, res) => {
-  res.json({ visitors: visitorHistory });
+// Visitor history for the client-side map.
+//
+// This used to return the entire history — up to 10,000 entries, unbounded and
+// unrated, on every page load. It now serves a bounded slice: `?limit=` (capped)
+// and optional `?since=` for incremental polling.
+const HISTORY_DEFAULT_LIMIT = 500;
+const HISTORY_MAX_LIMIT = 5000;
+
+app.get('/api/visitors/history', historyRateLimiter, (req, res) => {
+  const all = historyStore.all();
+  const limit = parseLimit(req.query.limit, HISTORY_DEFAULT_LIMIT, HISTORY_MAX_LIMIT);
+
+  const sinceRaw = Number.parseInt(String(req.query.since ?? ''), 10);
+  const scoped = Number.isFinite(sinceRaw) && sinceRaw > 0 ? visitorsSince(all, sinceRaw) : all;
+
+  const slice = recentVisitors(scoped, limit);
+  res.json({
+    visitors: slice,
+    total: all.length,
+    returned: slice.length,
+    truncated: slice.length < scoped.length,
+  });
+});
+
+// Aggregate stats over the visitor history. Cheap for clients that want
+// counters rather than every coordinate.
+app.get('/api/visitors/stats', historyRateLimiter, (_req, res) => {
+  res.json(computeVisitorStats(historyStore.all()));
 });
 
 // ===========================================
@@ -1273,6 +1297,33 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
+
+/**
+ * Graceful shutdown. History writes are debounced, so a plain SIGTERM could
+ * drop the last few visits; flush synchronously on the way out and stop
+ * accepting new work first.
+ */
+let shuttingDown = false;
+function shutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Server] ${signal} received, shutting down`);
+
+  clearInterval(heartbeatInterval);
+  clearInterval(limiterSweep);
+  historyStore.dispose();
+  historyStore.flushSync();
+
+  for (const client of wss.clients) {
+    try { client.close(1001, 'Server shutting down'); } catch { /* already gone */ }
+  }
+
+  server.close(() => process.exit(0));
+  // Don't hang forever on a stuck connection.
+  setTimeout(() => process.exit(0), 5000).unref?.();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 server.listen(PORT, () => {
   console.log(`🌍 Identity Profiler running on port ${PORT}`);

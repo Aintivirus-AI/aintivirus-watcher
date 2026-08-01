@@ -16,6 +16,9 @@ import { useEmotionTracker } from './hooks/useEmotionTracker';
 import { useComprehensiveDetection } from './hooks/useComprehensiveDetection';
 import { useVisitors } from './hooks/useVisitors';
 import { useVisitorHistory } from './hooks/useVisitorHistory';
+import { useVisitorStats } from './hooks/useVisitorStats';
+import { GlobalReachSection } from './components/sections/GlobalReachSection';
+import { ProfileExportButton } from './components/ProfileExport/ProfileExportButton';
 
 // Components
 import { Globe3D } from './components/Globe/Globe3D';
@@ -880,7 +883,8 @@ function App() {
   useComprehensiveDetection();
 
   // Multi-visitor tracking
-  const { visitors, currentVisitor, isConnected, chatMessages, sendChatMessage } = useVisitors();
+  const { visitors, currentVisitor, isConnected, chatMessages, sendChatMessage, chatCooldownMs } = useVisitors();
+  const { stats: visitorStats, loading: statsLoading, error: statsError } = useVisitorStats();
 
   // All-time visitor history
   const { history: historicalVisitors } = useVisitorHistory();
@@ -1010,6 +1014,7 @@ function App() {
                 <ChatBox
                   messages={chatMessages}
                   onSend={sendChatMessage}
+                  cooldownMs={chatCooldownMs}
                   isConnected={isConnected}
                 />
               </div>
@@ -1169,6 +1174,19 @@ function App() {
                     <SystemPreferencesSection />
                   </div>
                 </div>
+
+                {/* Aggregate reach of the tracker itself */}
+                <div className="mb-8">
+                  <SectionTitle icon={<Globe size={14} />}>Network Reach</SectionTitle>
+                  <GlobalReachSection
+                    stats={visitorStats}
+                    loading={statsLoading}
+                    error={statsError}
+                  />
+                </div>
+
+                {/* Take the dossier with you */}
+                <ProfileExportButton />
 
               </div>
             </div>

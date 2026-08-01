@@ -20,6 +20,11 @@ server/.env
 # MaxMind GeoLite2 database (large file, download separately)
 server/data/*.mmdb
 
+# Runtime visitor history — per-deployment data containing visitor locations,
+# written by the server at runtime. Never belongs in the repo.
+server/data/visitors-history.json
+server/data/visitors-history.json.tmp
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
