@@ -109,13 +109,14 @@ describe('HistoryStore', () => {
   });
 
   describe('persistence', () => {
-    it('writes to disk after the debounce window', async () => {
-      const store = new HistoryStore({ file, flushDelayMs: 5 });
+    it('defers the write, then persists on flush', async () => {
+      // A long debounce keeps the timer out of the way so the assertions are
+      // about behaviour, not about who wins a race on a busy machine.
+      const store = new HistoryStore({ file, flushDelayMs: 60_000 });
       store.append(visit({ city: 'persisted' }));
 
       expect(fs.existsSync(file)).toBe(false); // debounced, not yet written
 
-      await new Promise((r) => setTimeout(r, 25));
       await store.flush();
 
       const onDisk = JSON.parse(fs.readFileSync(file, 'utf-8'));
@@ -127,10 +128,11 @@ describe('HistoryStore', () => {
     // The original wrote the whole array synchronously on every connect. The
     // debounce means a burst costs one write, not one per visitor.
     it('coalesces a burst of appends into a single file write', async () => {
-      const store = new HistoryStore({ file, flushDelayMs: 5 });
+      const store = new HistoryStore({ file, flushDelayMs: 60_000 });
       for (let i = 0; i < 200; i++) store.append(visit({ city: `c${i}` }));
 
-      await new Promise((r) => setTimeout(r, 25));
+      // 200 appends, still only one file write.
+      expect(fs.existsSync(file)).toBe(false);
       await store.flush();
 
       expect(JSON.parse(fs.readFileSync(file, 'utf-8'))).toHaveLength(200);
@@ -138,9 +140,8 @@ describe('HistoryStore', () => {
     });
 
     it('writes atomically, leaving no temp file behind', async () => {
-      const store = new HistoryStore({ file, flushDelayMs: 1 });
+      const store = new HistoryStore({ file, flushDelayMs: 60_000 });
       store.append(visit());
-      await new Promise((r) => setTimeout(r, 10));
       await store.flush();
 
       expect(fs.existsSync(`${file}.tmp`)).toBe(false);
@@ -149,9 +150,8 @@ describe('HistoryStore', () => {
     });
 
     it('restricts the file to owner-only permissions (it holds locations)', async () => {
-      const store = new HistoryStore({ file, flushDelayMs: 1 });
+      const store = new HistoryStore({ file, flushDelayMs: 60_000 });
       store.append(visit());
-      await new Promise((r) => setTimeout(r, 10));
       await store.flush();
 
       const mode = fs.statSync(file).mode & 0o777;
@@ -169,14 +169,18 @@ describe('HistoryStore', () => {
       store.dispose();
     });
 
-    it('keeps serving from memory when the directory is not writable', async () => {
+    it('keeps serving from memory when the path is not writable', async () => {
+      // Parent is a regular file, so mkdir fails with ENOTDIR everywhere —
+      // no reliance on /proc or on which user the tests run as.
+      const blocker = path.join(dir, 'blocker');
+      fs.writeFileSync(blocker, 'not a directory');
+
       const store = new HistoryStore({
-        file: path.join('/proc/definitely-not-writable', 'history.json'),
-        flushDelayMs: 1,
+        file: path.join(blocker, 'history.json'),
+        flushDelayMs: 60_000,
       });
       store.append(visit({ city: 'memory-only' }));
 
-      await new Promise((r) => setTimeout(r, 10));
       await store.flush();
 
       expect(store.isWritable).toBe(false);
@@ -185,10 +189,9 @@ describe('HistoryStore', () => {
     });
 
     it('round-trips through a reload', async () => {
-      const first = new HistoryStore({ file, flushDelayMs: 1 });
+      const first = new HistoryStore({ file, flushDelayMs: 60_000 });
       first.append(visit({ city: 'alpha' }));
       first.append(visit({ city: 'beta' }));
-      await new Promise((r) => setTimeout(r, 10));
       await first.flush();
       first.dispose();
 
