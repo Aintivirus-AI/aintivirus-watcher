@@ -395,7 +395,7 @@ function CreepyIntroPopup({ visitor, onEnter }: { visitor: Visitor | null; onEnt
 
   return (
     <motion.div
-      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto py-24 md:items-center md:py-10"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -409,45 +409,61 @@ function CreepyIntroPopup({ visitor, onEnter }: { visitor: Visitor | null; onEnt
         backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,240,255,0.1) 2px, rgba(0,240,255,0.1) 4px)',
       }} />
 
-      <div className="relative z-10 max-w-lg w-full mx-6 px-2">
-        {/* Eye icon */}
+      <div className="relative z-10 w-full max-w-3xl mx-6 px-2">
+        {/* Eye — the focal point. Concentric rings give it presence at the
+            centre of a full viewport instead of a 20px icon in a void. */}
         <motion.div
-          className="flex justify-center mb-12"
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: 'spring', delay: 0.2 }}
+          className="flex justify-center mb-14"
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 120, damping: 14, delay: 0.15 }}
         >
-          <div className="w-20 h-20 rounded-full border border-cyber-red/30 flex items-center justify-center bg-cyber-red/5">
-            <Eye size={34} className="text-cyber-red" />
+          <div className="relative flex items-center justify-center">
+            <span className="absolute w-40 h-40 rounded-full border border-cyber-red/10 animate-ping-slow" />
+            <span className="absolute w-28 h-28 rounded-full border border-cyber-red/20" />
+            <div className="w-20 h-20 rounded-full border border-cyber-red/40 flex items-center justify-center bg-cyber-red/[0.07] shadow-[0_0_60px_-12px_rgba(255,45,85,0.5)]">
+              <Eye size={30} className="text-cyber-red" />
+            </div>
           </div>
         </motion.div>
 
-        <motion.p
-          className="text-center text-cyber-text-dim text-xs uppercase tracking-[0.35em] font-mono mb-14"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+        <motion.div
+          className="text-center mb-9"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
         >
-          We already know...
-        </motion.p>
+          <p className="text-cyber-red/70 text-[10px] uppercase tracking-[0.4em] font-mono mb-3">
+            Passive scan complete
+          </p>
+          <h2 className="text-white text-2xl md:text-3xl font-display font-bold tracking-tight">
+            We already know&hellip;
+          </h2>
+          <p className="text-white/35 text-[13px] mt-4 max-w-md mx-auto leading-relaxed">
+            You haven&rsquo;t clicked anything, logged in, or granted a permission.
+          </p>
+        </motion.div>
 
-        {/* Creepy indicators */}
-        <div className="mb-14">
+        {/* Reveals. A single bordered stack reads as one report rather than
+            three floating cards of differing heights. */}
+        <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] overflow-hidden mb-9">
           {indicators.map((item, i) => (
             <AnimatePresence key={i}>
               {step > i && (
                 <motion.div
-                  initial={{ opacity: 0, x: -20 }}
+                  initial={{ opacity: 0, x: -12 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.5 }}
-                  className="bg-cyber-bg-card/80 border border-white/5 rounded-xl px-6 py-6 mb-8 last:mb-0"
+                  transition={{ duration: 0.45 }}
+                  className="flex items-start gap-4 px-6 py-5 border-b border-white/[0.05] last:border-b-0"
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="mt-1 shrink-0">{item.icon}</div>
-                    <div>
-                      <p className="text-white/40 text-[10px] uppercase tracking-widest font-mono mb-2">{item.label}</p>
-                      <p className="text-cyber-text text-[15px] font-display font-semibold leading-snug">{item.value}</p>
-                    </div>
+                  <div className="mt-0.5 shrink-0 opacity-80">{item.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-white/35 text-[10px] uppercase tracking-[0.2em] font-mono mb-1.5">
+                      {item.label}
+                    </p>
+                    <p className="text-white/90 text-[15px] font-display font-semibold leading-snug break-words">
+                      {item.value}
+                    </p>
                   </div>
                 </motion.div>
               )}
@@ -455,26 +471,26 @@ function CreepyIntroPopup({ visitor, onEnter }: { visitor: Visitor | null; onEnt
           ))}
         </div>
 
-        {/* CTA */}
         <AnimatePresence>
           {ready && step >= indicators.length && (
             <motion.div
-              className="text-center pt-2"
+              className="text-center"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
+              transition={{ delay: 0.4 }}
             >
-              <p className="text-cyber-text-dim text-[11px] font-mono mb-6 tracking-wider">
-                ...and that's just the beginning.
+              <p className="text-white/30 text-[12px] font-mono mb-5 tracking-wide">
+                &hellip;and that&rsquo;s just what we collected before you scrolled.
               </p>
               <button
                 onClick={onEnter}
-                className="group relative inline-flex items-center gap-3 bg-cyber-red/10 border border-cyber-red/30 hover:bg-cyber-red/20 hover:border-cyber-red/50 transition-all px-10 py-4 rounded-xl cursor-pointer"
+                className="group inline-flex items-center gap-3 bg-cyber-red/10 border border-cyber-red/40 hover:bg-cyber-red/20 hover:border-cyber-red/70 transition-all px-8 py-3.5 rounded-lg cursor-pointer"
               >
                 <Eye size={16} className="text-cyber-red" />
-                <span className="text-cyber-red text-[11px] font-display font-bold uppercase tracking-[0.2em]">
-                  Enter The Watcher
+                <span className="text-cyber-red text-[12px] font-display font-bold uppercase tracking-[0.18em]">
+                  See the full profile
                 </span>
+                <span className="text-cyber-red/60 transition-transform group-hover:translate-x-1">&rarr;</span>
               </button>
             </motion.div>
           )}

@@ -124,11 +124,19 @@
   }
 }
 
-/* Base styles */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* Base styles.
+ *
+ * This reset MUST live in @layer base. Tailwind v4 emits its utilities into
+ * @layer utilities, and unlayered CSS outranks every cascade layer — so an
+ * unlayered `* { margin: 0; padding: 0 }` silently defeated every Tailwind
+ * margin/padding utility in the app. Spacing classes were being written and
+ * having no effect at all. */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
 }
 
 html {
@@ -1662,4 +1670,21 @@ body.nav-no-scroll {
 .hud-frame > .hud-corner-bl,
 .hud-frame > .hud-corner-br {
   position: absolute;
+}
+
+/* Slow outward pulse behind the intro eye. Tailwind's `animate-ping` is far
+   too fast and aggressive for a focal element that sits on screen for
+   several seconds. */
+@keyframes ping-slow {
+  0%   { transform: scale(0.85); opacity: 0.6; }
+  70%  { transform: scale(1.25); opacity: 0; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+.animate-ping-slow {
+  animation: ping-slow 3.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ping-slow { animation: none; }
 }

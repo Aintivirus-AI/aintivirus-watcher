@@ -89,7 +89,7 @@ function GlobeGrid() {
 
   return (
     <lineSegments geometry={geometry}>
-      <lineBasicMaterial color="#00f0ff" opacity={0.12} transparent />
+      <lineBasicMaterial color="#00f0ff" opacity={0.26} transparent />
     </lineSegments>
   );
 }
@@ -309,12 +309,26 @@ function RotatingGlobe({
 
   return (
     <group ref={globeRef}>
-      <Sphere args={[2, 32, 32]}>
-        <meshBasicMaterial color="#05050a" opacity={0.95} transparent />
+      {/* Body — very slightly lifted off pure black so the sphere separates
+          from the page behind it. */}
+      <Sphere args={[2, 48, 48]}>
+        <meshBasicMaterial color="#080d18" opacity={0.98} transparent />
       </Sphere>
-      
-      <Sphere args={[2.01, 24, 24]}>
-        <meshBasicMaterial color="#00f0ff" wireframe opacity={0.08} transparent />
+
+      <Sphere args={[2.01, 28, 28]}>
+        <meshBasicMaterial color="#00f0ff" wireframe opacity={0.16} transparent />
+      </Sphere>
+
+      {/* Atmosphere: a slightly larger shell rendered from the inside gives a
+          rim light around the limb, which is what makes it read as a globe. */}
+      <Sphere args={[2.14, 48, 48]}>
+        <meshBasicMaterial
+          color="#00f0ff"
+          opacity={0.07}
+          transparent
+          side={THREE.BackSide}
+          depthWrite={false}
+        />
       </Sphere>
 
       <GlobeGrid />
