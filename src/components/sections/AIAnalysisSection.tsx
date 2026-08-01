@@ -199,7 +199,7 @@ export function FinancialSection() {
       <DataRow label="Shopping Style" value={shoppingStyle} />
       <div className="py-2.5 border-b border-white/[0.03]">
         <span className="text-white/40 text-[12px] block mb-2">Tech Ecosystem</span>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {ecosystems.length > 0 ? (
             ecosystems.map((brand, i) => (
               <span

@@ -13,7 +13,7 @@ const nf = new Intl.NumberFormat('en-US');
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg bg-white/[0.02] border border-white/5 px-3 py-2.5">
+    <div className="flex flex-col gap-1.5 rounded-lg bg-white/[0.02] border border-white/5 px-3.5 py-3">
       <span className="text-[9px] font-display uppercase tracking-[0.18em] text-white/35">{label}</span>
       <span className="text-cyber-cyan font-mono text-[15px] leading-none">{value}</span>
       {hint && <span className="text-[9px] font-mono text-white/25">{hint}</span>}
@@ -73,8 +73,8 @@ export function GlobalReachSection({ stats, loading, error, delay = 0 }: GlobalR
       )}
 
       {stats && (
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="flex flex-col gap-5">
+          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
             <Stat label="Total" value={nf.format(stats.total)} hint="all time" />
             <Stat label="24 hours" value={nf.format(stats.last24h)} hint="recent visits" />
             <Stat label="Countries" value={nf.format(stats.uniqueCountries)} hint={`${nf.format(stats.uniqueCities)} cities`} />
@@ -86,7 +86,7 @@ export function GlobalReachSection({ stats, loading, error, delay = 0 }: GlobalR
               <span className="flex items-center gap-1.5 text-[9px] font-display uppercase tracking-[0.18em] text-white/35">
                 <MapPin size={10} /> Top countries
               </span>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2.5">
                 {stats.topCountries.slice(0, 5).map((c) => (
                   <CountryBar key={c.country} country={c.country} count={c.count} share={c.share} />
                 ))}
@@ -94,7 +94,7 @@ export function GlobalReachSection({ stats, loading, error, delay = 0 }: GlobalR
             </div>
           )}
 
-          <div className="flex flex-wrap gap-x-5 gap-y-1.5 border-t border-white/5 pt-3">
+          <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-white/5 pt-4">
             {busiest && (
               <span className="flex items-center gap-1.5 font-mono text-[10px] text-white/35">
                 <Clock size={10} className="text-cyber-cyan/40" />

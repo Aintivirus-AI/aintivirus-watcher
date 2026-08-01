@@ -20,7 +20,7 @@ export function DataSection({
   badge,
 }: DataSectionProps) {
   return (
-    <div className="mb-8">
+    <div className="mb-10">
       <motion.div
         className={`rounded-xl bg-white/[0.02] border border-white/5 overflow-hidden relative group/section ${className}`}
         initial={{ opacity: 0, y: 8 }}
@@ -36,7 +36,7 @@ export function DataSection({
           </div>
           {badge && <div>{badge}</div>}
         </div>
-        <div className="px-4 py-3">{children}</div>
+        <div className="px-4 py-3.5 md:px-5 md:py-4">{children}</div>
       </motion.div>
     </div>
   );
@@ -87,12 +87,12 @@ export function DataRow({
   }
 
   return (
-    <div className="flex justify-between items-start py-3 border-b border-white/[0.03] last:border-0 gap-3">
-      <span className={`text-[12px] flex items-center gap-2 shrink-0 ${dimmed ? 'text-white/30' : 'text-white/40'}`}>
+    <div className="flex justify-between items-start gap-4 py-3.5 border-b border-white/[0.03] last:border-0">
+      <span className={`text-[12px] leading-relaxed flex items-center gap-2 shrink-0 ${dimmed ? 'text-white/30' : 'text-white/40'}`}>
         {icon && <span className="opacity-50">{icon}</span>}
         {label}
       </span>
-      <span className={`font-mono text-[12px] ${finalColor} text-right`}>
+      <span className={`font-mono text-[12px] leading-relaxed ${finalColor} text-right`}>
         {displayValue}
       </span>
     </div>
@@ -127,8 +127,8 @@ export function StatusRow({
     : 'bg-white/20';
 
   return (
-    <div className="flex justify-between items-center py-3 border-b border-white/[0.03] last:border-0 gap-3">
-      <span className="text-white/40 text-[12px]">{label}</span>
+    <div className="flex justify-between items-center gap-4 py-3.5 border-b border-white/[0.03] last:border-0">
+      <span className="text-white/40 text-[12px] leading-relaxed">{label}</span>
       <div className="flex items-center gap-2">
         <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
         <span className={`font-mono text-[12px] ${color}`}>
@@ -162,8 +162,8 @@ export function PercentRow({ label, value, detected, suffix = '%' }: PercentRowP
         : 'text-rose-400/80';
 
   return (
-    <div className="flex justify-between items-center py-3 border-b border-white/[0.03] last:border-0 gap-3">
-      <span className="text-white/40 text-[12px]">{label}</span>
+    <div className="flex justify-between items-center gap-4 py-3.5 border-b border-white/[0.03] last:border-0">
+      <span className="text-white/40 text-[12px] leading-relaxed">{label}</span>
       <span className={`font-mono text-[12px] ${color}`}>{displayText}</span>
     </div>
   );

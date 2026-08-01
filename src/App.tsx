@@ -213,7 +213,7 @@ function BatteryBadge() {
 function SectionTitle({ children, icon, badge }: { children: React.ReactNode; icon: React.ReactNode; badge?: React.ReactNode }) {
   return (
     <motion.div
-      className="flex items-center gap-3 mb-5"
+      className="flex items-center gap-3 mb-6"
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.3 }}
@@ -231,7 +231,7 @@ function SectionTitle({ children, icon, badge }: { children: React.ReactNode; ic
 
 function SubsectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="flex items-center gap-2 text-white/35 text-[10px] uppercase tracking-[0.28em] mb-4 font-mono">
+    <h3 className="flex items-center gap-2 text-white/35 text-[10px] uppercase tracking-[0.28em] mb-5 mt-1 font-mono">
       <span className="w-1 h-1 rounded-full bg-cyber-cyan/60" />
       {children}
     </h3>
@@ -1040,12 +1040,12 @@ function App() {
               <AnimatePresence>
                 {mcafeeProtocol && <McAfeeProtocolOverlay />}
               </AnimatePresence>
-              <div className={`p-4 md:p-6 ${mcafeeProtocol ? 'relative z-10' : ''}`}>
+              <div className={`p-5 md:p-8 ${mcafeeProtocol ? 'relative z-10' : ''}`}>
                 <AnimatePresence>
                   <McAfeeProtocolBanner active={mcafeeProtocol} />
                 </AnimatePresence>
                 {/* Identity Profile */}
-                <div className="mb-8">
+                <div className="mb-12">
                   <SectionTitle icon={<User size={14} />}>Identity Profile</SectionTitle>
                   <UserProfileSection />
                   <PersonalityTraitsSection />
@@ -1054,7 +1054,7 @@ function App() {
                 </div>
 
                 {/* Behavioral Analysis */}
-                <div className="mb-8">
+                <div className="mb-12">
                   <SectionTitle icon={<Activity size={14} />}>Behavioral Analysis</SectionTitle>
                   <YouRightNowSection />
                   <EmotionsSection />
@@ -1063,7 +1063,7 @@ function App() {
                 </div>
 
                 {/* OSINT Intelligence - GhostTrack inspired */}
-                <div className="mb-8">
+                <div className="mb-12">
                   <SectionTitle icon={<Crosshair size={14} />}>OSINT Intelligence</SectionTitle>
                   <IPDeepAnalysisSection />
                   <UsernameTrackerSection />
@@ -1071,7 +1071,7 @@ function App() {
                 </div>
 
                 {/* Signal Intelligence - WiFi DensePose inspired */}
-                <div className="mb-8">
+                <div className="mb-12">
                   <SectionTitle icon={<Radio size={14} />}>Signal Intelligence</SectionTitle>
                   <WiFiScannerSection />
                   <PresenceDetectionSection />
@@ -1085,7 +1085,7 @@ function App() {
                 </div>
 
                 {/* Deep AI Insights */}
-                <div className="mb-8">
+                <div className="mb-12">
                   <SectionTitle icon={<Brain size={14} />}>Deep AI Insights</SectionTitle>
                   <PersonalLifeSection />
                   <MentalPhysicalSection />
@@ -1096,7 +1096,7 @@ function App() {
                 </div>
 
                 {/* Technical Fingerprinting */}
-                <div className="mb-8">
+                <div className="mb-12">
                   <SectionTitle
                     icon={mcafeeProtocol ? <ShieldCheck size={14} /> : <Shield size={14} />}
                     badge={mcafeeProtocol
@@ -1107,13 +1107,13 @@ function App() {
                     Technical Fingerprinting
                   </SectionTitle>
 
-                  <div className="mb-6">
+                  <div className="mb-9">
                     <SubsectionTitle>Spoof & Integrity Analysis</SubsectionTitle>
                     <LieDetectionSection />
                     <HeadlessDetectionSection />
                   </div>
 
-                  <div className="mb-6">
+                  <div className="mb-9">
                     <SubsectionTitle>Core Fingerprints</SubsectionTitle>
                     <CrossBrowserTrackingSection />
                     <BrowserInfoSection />
@@ -1122,7 +1122,7 @@ function App() {
                     <DOMRectCSSSection />
                   </div>
 
-                  <div className="mb-6">
+                  <div className="mb-9">
                     <SubsectionTitle>Hardware & System</SubsectionTitle>
                     <HardwareSection />
                     <DisplaySection />
@@ -1132,7 +1132,7 @@ function App() {
                     <KeyboardLayoutSection />
                   </div>
 
-                  <div className="mb-6">
+                  <div className="mb-9">
                     <SubsectionTitle>Network & Privacy</SubsectionTitle>
                     <CloudflareTraceSection />
                     <NetworkSection />
@@ -1142,7 +1142,7 @@ function App() {
                     <PermissionsSection />
                   </div>
 
-                  <div className="mb-6">
+                  <div className="mb-9">
                     <SubsectionTitle>Advanced Web APIs</SubsectionTitle>
                     <WebGPUFingerprintSection />
                     <WasmFingerprintSection />
@@ -1150,7 +1150,7 @@ function App() {
                     <WebAPISection />
                   </div>
 
-                  <div className="mb-6">
+                  <div className="mb-9">
                     <SubsectionTitle>Multimedia & Input</SubsectionTitle>
                     <MediaDevicesSection />
                     <MediaCodecsSection />
@@ -1158,7 +1158,7 @@ function App() {
                     <ClientHintsSection />
                   </div>
 
-                  <div className="mb-6">
+                  <div className="mb-9">
                     <SubsectionTitle>Interaction Details</SubsectionTitle>
                     <ScrollBehaviorSection />
                     <AttentionTrackingSection />
@@ -1166,7 +1166,7 @@ function App() {
                     <BrowserAnalysisSection />
                   </div>
 
-                  <div className="mb-6">
+                  <div className="mb-9">
                     <SubsectionTitle>Account Detection</SubsectionTitle>
                     <SocialLoginsSection />
                     <CryptoWalletsSection />
@@ -1176,7 +1176,7 @@ function App() {
                 </div>
 
                 {/* Aggregate reach of the tracker itself */}
-                <div className="mb-8">
+                <div className="mb-12">
                   <SectionTitle icon={<Globe size={14} />}>Network Reach</SectionTitle>
                   <GlobalReachSection
                     stats={visitorStats}
