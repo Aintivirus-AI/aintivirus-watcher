@@ -1,0 +1,14 @@
+{
+  "name": "watcher-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "VisitorRoom" }]
+  },
+  "migrations": [
+    // SQLite-backed storage: available on the free plan, and the history
+    // queries are genuinely relational.
+    { "tag": "v1", "new_sqlite_classes": ["VisitorRoom"] }
+  ],
+  "observability": { "enabled": true }
+}
