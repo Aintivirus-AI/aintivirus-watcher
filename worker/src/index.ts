@@ -94,7 +94,8 @@ async function handleAnalyze(request: Request): Promise<Response> {
     !userData.browser ||
     !userData.fingerprints ||
     !userData.behavioral ||
-    !userData.botDetection
+    !userData.botDetection ||
+    !userData.crypto
   ) {
     return new Response(
       JSON.stringify({ success: false, error: 'Invalid request data' }),
@@ -102,9 +103,18 @@ async function handleAnalyze(request: Request): Promise<Response> {
     );
   }
 
-  const analysis = generateLocalAnalysis(userData);
-  return new Response(
-    JSON.stringify({ success: true, analysis, fallback: false }),
-    { status: 200, headers },
-  );
+  try {
+    const analysis = generateLocalAnalysis(userData);
+    return new Response(
+      JSON.stringify({ success: true, analysis, fallback: false }),
+      { status: 200, headers },
+    );
+  } catch {
+    // Malformed-but-shaped payloads must degrade to an error response, not an
+    // uncaught exception (Cloudflare error 1101).
+    return new Response(
+      JSON.stringify({ success: false, error: 'Analysis failed' }),
+      { status: 500, headers },
+    );
+  }
 }
