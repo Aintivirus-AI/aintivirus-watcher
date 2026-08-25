@@ -24,7 +24,6 @@ import { ProfileExportButton } from './components/ProfileExport/ProfileExportBut
 import { Globe3D } from './components/Globe/Globe3D';
 import { AdAuction } from './components/AdAuction/AdAuction';
 import { ChatBox } from './components/Chat/ChatBox';
-import Navbar from './components/Navbar/Navbar';
 
 // AI Analysis Sections
 import {
@@ -122,7 +121,7 @@ function ParticleBackground() {
         className="absolute inset-0"
         style={{
           background:
-            'radial-gradient(ellipse at 50% 0%, rgba(0, 240, 255, 0.04) 0%, transparent 45%), radial-gradient(ellipse at 50% 100%, rgba(191, 90, 242, 0.04) 0%, transparent 45%)',
+            'radial-gradient(ellipse at 50% 0%, rgba(225, 17, 17, 0.04) 0%, transparent 45%), radial-gradient(ellipse at 50% 100%, rgba(225, 17, 17, 0.03) 0%, transparent 45%)',
         }}
       />
 
@@ -130,7 +129,7 @@ function ParticleBackground() {
       <div
         className="absolute w-[800px] h-[800px] rounded-full opacity-[0.04]"
         style={{
-          background: 'radial-gradient(circle, #00f0ff 0%, transparent 70%)',
+          background: 'radial-gradient(circle, #e11111 0%, transparent 70%)',
           top: '-20%',
           left: '-10%',
           filter: 'blur(80px)',
@@ -139,7 +138,7 @@ function ParticleBackground() {
       <div
         className="absolute w-[600px] h-[600px] rounded-full opacity-[0.04]"
         style={{
-          background: 'radial-gradient(circle, #bf5af2 0%, transparent 70%)',
+          background: 'radial-gradient(circle, #96938b 0%, transparent 70%)',
           bottom: '-10%',
           right: '-5%',
           filter: 'blur(80px)',
@@ -157,7 +156,7 @@ function ParticleBackground() {
         className="absolute inset-0 hidden md:block"
         style={{
           backgroundImage:
-            'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0, 240, 255, 0.015) 3px, rgba(0, 240, 255, 0.015) 4px)',
+            'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(244, 242, 238, 0.012) 3px, rgba(244, 242, 238, 0.012) 4px)',
         }}
       />
 
@@ -167,7 +166,7 @@ function ParticleBackground() {
           key={i}
           className="absolute w-1 h-1 rounded-full particle-float"
           style={{
-            background: i % 3 === 0 ? '#00f0ff' : i % 3 === 1 ? '#bf5af2' : '#ff2d55',
+            background: i % 3 === 0 ? '#e11111' : i % 3 === 1 ? '#96938b' : '#ff3b3b',
             boxShadow: `0 0 6px ${i % 3 === 0 ? 'rgba(0,240,255,0.5)' : i % 3 === 1 ? 'rgba(191,90,242,0.5)' : 'rgba(255,45,85,0.5)'}`,
             left: `${10 + i * 15}%`,
             animationDelay: `${i * 3}s`,
@@ -606,10 +605,10 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
 // Risk-level palette — each maps to a cohesive color scheme used throughout the banner.
 const RISK_STYLES = {
   minimal:  { accent: '#10b981', label: 'Minimal exposure',   text: 'text-emerald-400', ring: 'stroke-emerald-400', bg: 'bg-emerald-500/5',  border: 'border-emerald-500/25' },
-  low:      { accent: '#22d3ee', label: 'Low visibility',     text: 'text-cyan-400',    ring: 'stroke-cyan-400',    bg: 'bg-cyan-500/5',     border: 'border-cyan-500/25' },
-  moderate: { accent: '#facc15', label: 'Moderate tracking',  text: 'text-amber-400',   ring: 'stroke-amber-400',   bg: 'bg-amber-500/5',    border: 'border-amber-500/25' },
-  high:     { accent: '#fb923c', label: 'High identifiability', text: 'text-orange-400',  ring: 'stroke-orange-400',  bg: 'bg-orange-500/5',   border: 'border-orange-500/25' },
-  extreme:  { accent: '#ff2d55', label: 'Near-unique profile', text: 'text-rose-400',    ring: 'stroke-rose-400',    bg: 'bg-rose-500/5',     border: 'border-rose-500/25' },
+  low:      { accent: '#e11111', label: 'Low visibility',     text: 'text-cyan-400',    ring: 'stroke-cyan-400',    bg: 'bg-cyan-500/5',     border: 'border-cyan-500/25' },
+  moderate: { accent: '#c9a227', label: 'Moderate tracking',  text: 'text-amber-400',   ring: 'stroke-amber-400',   bg: 'bg-amber-500/5',    border: 'border-amber-500/25' },
+  high:     { accent: '#c9a227', label: 'High identifiability', text: 'text-orange-400',  ring: 'stroke-orange-400',  bg: 'bg-orange-500/5',   border: 'border-orange-500/25' },
+  extreme:  { accent: '#ff3b3b', label: 'Near-unique profile', text: 'text-rose-400',    ring: 'stroke-rose-400',    bg: 'bg-rose-500/5',     border: 'border-rose-500/25' },
 } as const;
 
 const CATEGORY_META: Record<SignalCategory, { label: string; icon: React.ReactNode }> = {
@@ -713,10 +712,10 @@ function ThreatReportCard() {
   const maxCategoryBits = Math.max(1, ...Object.values(report.byCategory));
 
   const ringFillColor = style === RISK_STYLES.minimal ? '#34d399'
-    : style === RISK_STYLES.low ? '#22d3ee'
-    : style === RISK_STYLES.moderate ? '#facc15'
-    : style === RISK_STYLES.high ? '#fb923c'
-    : '#fb7185';
+    : style === RISK_STYLES.low ? '#e11111'
+    : style === RISK_STYLES.moderate ? '#c9a227'
+    : style === RISK_STYLES.high ? '#c9a227'
+    : '#ff3b3b';
 
   if (dismissed) return null;
 
@@ -838,10 +837,10 @@ function ThreatReportCard() {
                     className="w-1 h-1 rounded-full shrink-0"
                     style={{
                       background:
-                        signal.severity === 'critical' ? '#fb7185'
-                        : signal.severity === 'high' ? '#fb923c'
-                        : signal.severity === 'medium' ? '#facc15'
-                        : '#64748b',
+                        signal.severity === 'critical' ? '#ff3b3b'
+                        : signal.severity === 'high' ? '#c9a227'
+                        : signal.severity === 'medium' ? '#c9a227'
+                        : '#8a877f',
                     }}
                   />
                   <span className="text-white/60 text-[10px] flex-1 truncate">
@@ -885,6 +884,39 @@ function ThreatReportCard() {
 
 // Keep old name as alias so existing JSX continues to work
 const ExtensionBanner = ThreatReportCard;
+
+/** Case-file chrome after stuffmonger.com: viewfinder corners + REC strip. */
+function CaseFrame() {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const id = window.setInterval(() => setElapsed(Date.now() - started), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const t = Math.floor(elapsed / 1000);
+  const timecode = [
+    String(Math.floor(t / 3600)).padStart(2, '0'),
+    String(Math.floor((t % 3600) / 60)).padStart(2, '0'),
+    String(t % 60).padStart(2, '0'),
+  ].join(':');
+  const caseDate = new Date()
+    .toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' })
+    .split('/')
+    .join('\u00b7');
+  return (
+    <div aria-hidden="true">
+      <span className="case-corner tl" />
+      <span className="case-corner tr" />
+      <span className="case-corner bl" />
+      <span className="case-corner br" />
+      <div className="case-strip">
+        <span className="case-rec"><span className="case-rec-dot" />REC</span>
+        <span className="case-label">CASE {caseDate}&nbsp;&nbsp;&nbsp;SUBJECT — VISITOR PROFILE</span>
+        <span className="case-time">{timecode}</span>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   // Initialize all tracking hooks
@@ -936,13 +968,12 @@ function App() {
 
       {/* Fixed elements */}
       <ParticleBackground />
-      <Navbar />
+      <CaseFrame />
       <ExtensionBanner />
       
       {/* Page content - starts after navbar */}
       <div>
-        {/* Spacer for fixed navbar */}
-        <div className="h-[70px] md:h-[85px] xl:h-[100px]" aria-hidden="true" />
+        <div className="h-6" aria-hidden="true" />
         
         {/* Main dashboard */}
         <main className="px-4 md:px-6 xl:px-8 pb-4 pt-4">

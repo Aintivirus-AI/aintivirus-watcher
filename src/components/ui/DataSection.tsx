@@ -182,11 +182,11 @@ export function ScoreRing({ value, label, size = 72, color = 'cyan' }: ScoreRing
   const strokeDashoffset = circumference - (value / 100) * circumference;
 
   const colorMap = {
-    cyan: { stroke: '#22d3ee', text: 'text-cyan-400' },
-    red: { stroke: '#f87171', text: 'text-rose-400' },
-    green: { stroke: '#4ade80', text: 'text-emerald-400' },
-    purple: { stroke: '#a78bfa', text: 'text-violet-400' },
-    yellow: { stroke: '#facc15', text: 'text-amber-400' },
+    cyan: { stroke: '#e11111', text: 'text-cyan-400' },
+    red: { stroke: '#ff3b3b', text: 'text-rose-400' },
+    green: { stroke: '#f4f2ee', text: 'text-emerald-400' },
+    purple: { stroke: '#96938b', text: 'text-violet-400' },
+    yellow: { stroke: '#c9a227', text: 'text-amber-400' },
   };
 
   const colors = colorMap[color];

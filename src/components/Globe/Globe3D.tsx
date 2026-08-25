@@ -89,7 +89,7 @@ function GlobeGrid() {
 
   return (
     <lineSegments geometry={geometry}>
-      <lineBasicMaterial color="#00f0ff" opacity={0.26} transparent />
+      <lineBasicMaterial color="#e11111" opacity={0.26} transparent />
     </lineSegments>
   );
 }
@@ -138,7 +138,7 @@ function VisitorPin({
   const frameCount = useRef(0);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
-  const color = isCurrentUser ? '#00f0ff' : '#ff2d55';
+  const color = isCurrentUser ? '#e11111' : '#ff3b3b';
   const size = isCurrentUser ? 0.1 : 0.06;
 
   const handleClick = useCallback(() => {
@@ -218,7 +218,7 @@ function VisitorArc({ startLat, startLon, endLat, endLon }: {
   );
 
   return (
-    <Line points={points} color="#00f0ff" lineWidth={1} transparent opacity={0.4} />
+    <Line points={points} color="#e11111" lineWidth={1} transparent opacity={0.4} />
   );
 }
 
@@ -316,14 +316,14 @@ function RotatingGlobe({
       </Sphere>
 
       <Sphere args={[2.01, 28, 28]}>
-        <meshBasicMaterial color="#00f0ff" wireframe opacity={0.16} transparent />
+        <meshBasicMaterial color="#e11111" wireframe opacity={0.16} transparent />
       </Sphere>
 
       {/* Atmosphere: a slightly larger shell rendered from the inside gives a
           rim light around the limb, which is what makes it read as a globe. */}
       <Sphere args={[2.14, 48, 48]}>
         <meshBasicMaterial
-          color="#00f0ff"
+          color="#e11111"
           opacity={0.07}
           transparent
           side={THREE.BackSide}
@@ -394,7 +394,7 @@ function GlobeScene({
   return (
     <>
       <ambientLight intensity={0.5} />
-      <pointLight position={[10, 10, 10]} intensity={0.6} color="#00f0ff" />
+      <pointLight position={[10, 10, 10]} intensity={0.6} color="#e11111" />
       <RotatingGlobe 
         visitors={visitors}
         currentVisitorId={currentVisitorId}
@@ -451,7 +451,7 @@ function timeAgo(ts: number): string {
 }
 
 function PinTooltip({ data, onClose }: { data: PinTooltipData; onClose: () => void }) {
-  const colorMap = { you: '#00f0ff', live: '#ff2d55', historical: '#22c55e' };
+  const colorMap = { you: '#e11111', live: '#ff3b3b', historical: '#22c55e' };
   const labelMap = { you: 'You', live: 'Online Now', historical: 'Visited' };
   const color = colorMap[data.type];
 
