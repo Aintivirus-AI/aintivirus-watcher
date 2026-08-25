@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Chrome, Eye, MapPin, Wifi, Monitor, Radio, Crosshair, Fingerprint, Cpu, Lock } from 'lucide-react';
+import { Shield, ShieldCheck, Activity, User, Brain, Users, Navigation, Loader2, AlertCircle, BatteryFull, BatteryMedium, BatteryLow, BatteryCharging, Globe, X, Eye, MapPin, Wifi, Monitor, Radio, Crosshair, Fingerprint, Cpu, Lock } from 'lucide-react';
 import type { Visitor } from './hooks/useVisitors';
 import { computeThreatReport, type ThreatReport, type SignalCategory } from './lib/threatModel';
 
@@ -583,21 +583,6 @@ function McAfeeProtocolBanner({ active }: { active: boolean }) {
         <div className="flex justify-between"><span className="text-white/25">Location Intel</span><span className="text-emerald-400/70">{spoofedData.countryRisk}</span></div>
       </div>
 
-      {/* Extension CTA */}
-      <div className="mt-4 pt-3 border-t border-emerald-500/10">
-        <p className="text-white/30 text-[9px] font-mono mb-3">
-          Want this protection for real? Get the AIntivirus browser extension.
-        </p>
-        <a
-          href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all text-emerald-400 text-[10px] font-display font-semibold uppercase tracking-widest"
-        >
-          <Chrome size={12} />
-          Add to Chrome
-        </a>
-      </div>
     </motion.div>
   );
 }
@@ -855,28 +840,7 @@ function ThreatReportCard() {
           </AnimatePresence>
         </div>
 
-        {/* CTA */}
-        <div className="px-5 pt-3 pb-4">
-          <p className="text-white/35 text-[10px] font-mono mb-3 leading-relaxed">
-            AIntivirus spoofs canvas + WebGL, randomizes fonts, and masks your WebRTC IP.
-          </p>
-          <a
-            href="https://chromewebstore.google.com/detail/jkpokhekaohljmphbggdpemdapgjnhli?utm_source=item-share-cb"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group flex items-center justify-center gap-2.5 w-full py-2.5 rounded-xl transition-all text-[11px] font-display font-bold uppercase tracking-[0.15em]"
-            style={{
-              background: `${style.accent}1a`,
-              border: `1px solid ${style.accent}55`,
-              color: style.accent,
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = `${style.accent}2a`; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = `${style.accent}1a`; }}
-          >
-            <ShieldCheck size={14} className="group-hover:scale-110 transition-transform" />
-            Shield Me — Add to Chrome
-          </a>
-        </div>
+        <div className="px-5 pb-4" />
       </div>
     </motion.div>
   );
